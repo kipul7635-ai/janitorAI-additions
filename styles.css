@@ -1,13 +1,30 @@
-body::after {
-  content: "Extension loaded ✔";
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 999999;
-  background: #ff00ff !important;
-  color: white;
-  text-align: center;
-  padding: 8px;
-  font-size: 16px;
+/* Hide SoundCloud embeds */
+iframe[src*="soundcloud.com"],
+[class*="soundcloud"],
+[id*="soundcloud"] {
+    display: none !important;
+}
+
+/* Style for our initialization screen */
+#janitor-init-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    background-color: black !important;
+    color: white !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 2147483647 !important; /* Max possible z-index */
+    font-family: monospace !important;
+    font-size: 24px !important;
+    letter-spacing: 2px !important;
+    cursor: pointer !important;
+    opacity: 1;
+    transition: opacity 0.5s ease-out !important;
+}
+
+/* Fade out animation */
+#janitor-init-overlay.fade-out {
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
