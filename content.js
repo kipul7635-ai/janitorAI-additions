@@ -6,20 +6,27 @@
     const images = data.images || [];
     const audioFiles = data.audio || [];
 
-    // 2. Create the full-screen overlay
+    // 2. Setup the audio object ahead of time
+    const audio = new Audio();
+    audio.loop = true;
+    audio.volume = 0.5;
+    audio.style.display = "none"; // hide it
+    document.body.appendChild(audio); // attach to DOM (mobile browsers require this)
+
+    // 3. Create the full-screen overlay
     const overlay = document.createElement("div");
     overlay.id = "janitor-init-overlay";
     overlay.textContent = "[ initialize chat ]";
     document.body.appendChild(overlay);
 
-    // 3. Wait for the user to click the overlay
-    overlay.addEventListener("click", async () => {
+    // 4. Wait for the user to click the overlay (Removed async here!)
+    overlay.addEventListener("click", function () {
       
       // Fade out the black screen
       overlay.classList.add("fade-out");
-      setTimeout(() => overlay.remove(), 500); // Remove from DOM after fade
+      setTimeout(() => overlay.remove(), 500);
 
-      // 4. Pick a random image and apply it
+      // Apply background image
       if (images.length > 0) {
         const pick = images[Math.floor(Math.random() * images.length)];
         const url = chrome.runtime.getURL(pick);
@@ -44,16 +51,12 @@
         document.head.appendChild(style);
       }
 
-      // 5. Start the music
+      // Play the music
       if (audioFiles.length > 0) {
         const audioPick = audioFiles[Math.floor(Math.random() * audioFiles.length)];
-        const audioUrl = chrome.runtime.getURL(audioPick);
+        audio.src = chrome.runtime.getURL(audioPick);
         
-        const audio = new Audio(audioUrl);
-        audio.loop = true;
-        audio.volume = 0.5; // Set volume to 50% so it's not too loud
-        
-        // Play the audio (this works now because it's triggered by a click event)
+        // Play the audio synchronously inside the click
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
     });
