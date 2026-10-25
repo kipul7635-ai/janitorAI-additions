@@ -2,9 +2,9 @@
   "images": [
     "images/modern_dark_street.jpg",
     "images/inside_forest.jpg", 
-    "images/modern_bus_stop"
+    "images/modern_bus_stop.jpg"
   ],
   "audio": [
-    "audio/mysterious_ambience.mp3", 
+    "audio/mysterious_ambience.mp3"
   ], 
 }
