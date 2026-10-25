@@ -10,7 +10,8 @@
 
     const style = document.createElement("style");
     style.textContent = `
-      body {
+      body,
+      ._chatLayoutBackground_tront_18 {
         background-image: url("${url}") !important;
         background-size: cover !important;
         background-position: center !important;
