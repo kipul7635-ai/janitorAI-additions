@@ -1,97 +1,104 @@
-(async function () {
-  try {
-    // --- 1. SETUP SETTINGS UI ---
-    const settingsBtn = document.createElement("button");
-    settingsBtn.id = "ambient-settings-btn";
-    settingsBtn.textContent = "⚙️ Ambient Settings";
+(function () {
+  // --- 1. INJECT UI IMMEDIATELY ---
+  const settingsBtn = document.createElement("button");
+  settingsBtn.id = "ambient-settings-btn";
+  settingsBtn.textContent = "⚙️ Ambient Settings";
 
-    const settingsMenu = document.createElement("div");
-    settingsMenu.id = "ambient-settings-menu";
-    settingsMenu.innerHTML = `
-      <h2>Ambient Engine Settings</h2>
-      
-      <label>API Key</label>
-      <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
-      
-      <label>Model</label>
-      <input type="text" id="set-model" placeholder="meta-llama/llama-3-8b-instruct:free" />
-      
-      <label>Proxy URL</label>
-      <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
-      
-      <button id="save-settings">Save & Close</button>
-    `;
+  const settingsMenu = document.createElement("div");
+  settingsMenu.id = "ambient-settings-menu";
+  settingsMenu.innerHTML = `
+    <h2>Ambient Engine Settings</h2>
+    
+    <label>API Key</label>
+    <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
+    
+    <label>Model</label>
+    <input type="text" id="set-model" placeholder="meta-llama/llama-3-8b-instruct:free" />
+    
+    <label>Proxy URL</label>
+    <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
+    
+    <button id="save-settings">Save & Close</button>
+    <button id="test-ai-btn">⚡ Test AI Connection</button>
+  `;
 
-    // Attach UI to the page
-    document.body.appendChild(settingsBtn);
-    document.body.appendChild(settingsMenu);
+  document.body.appendChild(settingsBtn);
+  document.body.appendChild(settingsMenu);
 
-    // Load saved settings into inputs
-    const savedKey = localStorage.getItem("ambient_api_key") || "";
-    const savedModel = localStorage.getItem("ambient_model") || "meta-llama/llama-3-8b-instruct:free";
-    const savedProxy = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
+  // Load settings
+  document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
+  document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "meta-llama/llama-3-8b-instruct:free";
+  document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
-    document.getElementById("set-api-key").value = savedKey;
-    document.getElementById("set-model").value = savedModel;
-    document.getElementById("set-proxy").value = savedProxy;
+  // Menu toggles
+  settingsBtn.addEventListener("click", () => {
+    settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
+  });
 
-    // Toggle Menu
-    settingsBtn.addEventListener("click", () => {
-      settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
-    });
+  document.getElementById("save-settings").addEventListener("click", () => {
+    localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
+    localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
+    localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
+    settingsMenu.style.display = "none";
+    console.log("✅ Settings saved.");
+  });
 
-    // Save Settings
-    document.getElementById("save-settings").addEventListener("click", () => {
-      localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
-      localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
-      localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
-      settingsMenu.style.display = "none";
-      console.log("✅ Settings saved.");
-    });
+  document.getElementById("test-ai-btn").addEventListener("click", async () => {
+    const apiKey = localStorage.getItem("ambient_api_key");
+    if (!apiKey) return alert("Please enter and save an API key first.");
+    
+    // Fetch assets dynamically for the test
+    try {
+      const res = await fetch(chrome.runtime.getURL("assets.json"));
+      const data = await res.json();
+      const testChat = "The group steps into a dark, gloomy forest. Rain begins to fall.";
+      await askAI(testChat, data.images || [], data.audio || [], apiKey);
+    } catch (e) {
+      console.error("Could not load assets.json for test", e);
+    }
+  });
 
 
-    // --- 2. SETUP OVERLAY & AUDIO ---
-    const res = await fetch(chrome.runtime.getURL("assets.json"));
-    const data = await res.json();
-    const images = data.images || [];
-    const audioFiles = data.audio || [];
+  // --- 2. INJECT OVERLAY IMMEDIATELY ---
+  const overlay = document.createElement("div");
+  overlay.id = "janitor-init-overlay";
+  overlay.textContent = "[ initialize chat ]";
+  document.body.appendChild(overlay);
 
-    const audio = new Audio();
-    audio.loop = true;
-    audio.volume = 0.5;
-    audio.style.display = "none";
-    document.body.appendChild(audio);
+  const audio = new Audio();
+  audio.loop = true;
+  audio.volume = 0.5;
+  audio.style.display = "none";
+  document.body.appendChild(audio);
 
-    const overlay = document.createElement("div");
-    overlay.id = "janitor-init-overlay";
-    overlay.textContent = "[ initialize chat ]";
-    document.body.appendChild(overlay);
 
-    // --- 3. ON CLICK / INITIALIZE ---
-    overlay.addEventListener("click", function () {
-      overlay.classList.add("fade-out");
-      setTimeout(() => overlay.remove(), 500);
+  // --- 3. ON CLICK / INITIALIZE ---
+  overlay.addEventListener("click", async function () {
+    overlay.classList.add("fade-out");
+    setTimeout(() => overlay.remove(), 500);
 
-      // Play default/first audio
+    try {
+      const res = await fetch(chrome.runtime.getURL("assets.json"));
+      const data = await res.json();
+      const images = data.images || [];
+      const audioFiles = data.audio || [];
+
       if (audioFiles.length > 0) {
         audio.src = chrome.runtime.getURL(audioFiles[0]);
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
 
-      // Check if API key exists before asking AI
       const apiKey = localStorage.getItem("ambient_api_key");
       if (apiKey) {
-        const testChat = "The group steps into a dark, gloomy forest. Rain begins to fall. 'We should find shelter,' the rogue whispers.";
+        const testChat = "The group steps into a dark, gloomy forest. Rain begins to fall.";
         askAI(testChat, images, audioFiles, apiKey);
-      } else {
-        console.log("No API key set. Open settings (⚙️) to add one.");
       }
-    });
-
-  } catch (e) {
-    console.error("Theme error:", e);
-  }
+    } catch (e) {
+      console.error("Error during initialization:", e);
+    }
+  });
 })();
+
 
 // --- 4. THE AI FUNCTION ---
 async function askAI(chatText, availableImages, availableAudio, apiKey) {
@@ -125,6 +132,7 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     if (result.error) {
       console.error("API Error:", result.error);
+      alert("API Error: " + result.error.message);
       return;
     }
 
@@ -134,11 +142,14 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     try {
       const decision = JSON.parse(aiMessage);
       console.log("✅ Parsed decision:", decision);
+      alert("AI Decided:\n" + JSON.stringify(decision, null, 2));
     } catch (e) {
       console.error("Failed to parse AI JSON:", e);
+      alert("AI didn't return valid JSON. Check console.");
     }
 
   } catch (e) {
     console.error("Fetch to API failed:", e);
+    alert("Network error. Check console.");
   }
 }
