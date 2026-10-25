@@ -1,12 +1,19 @@
 {
   "manifest_version": 3,
   "name": "My Janitor Theme",
-  "version": "1.0",
+  "version": "1.2",
   "description": "Custom appearance and music for Janitor AI",
   "content_scripts": [
     {
       "matches": ["*://*.janitorai.com/*"],
-      "css": ["styles.css"]
+      "css": ["styles.css"],
+      "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["images/*", "audio/*", "assets.json"],
+      "matches": ["*://*.janitorai.com/*"]
     }
   ]
 }
