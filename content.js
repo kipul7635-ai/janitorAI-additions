@@ -1,3 +1,8 @@
+let refreshInterval = null; // Holds our timer
+let lastProcessedText = ""; // Prevents API spam if the text hasn't changed
+let cachedImages = [];
+let cachedAudio = [];
+
 (function () {
   // --- 1. INJECT UI IMMEDIATELY ---
   const uiWrapper = document.createElement("div");
@@ -20,10 +25,16 @@
     <h2>Ambient Engine</h2>
     <label>API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
+    
     <label>Model</label>
     <input type="text" id="set-model" placeholder="nvidia/nemotron-3-ultra-550b-a55b:free" />
+    
     <label>Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
+    
+    <label>Refresh Frequency (Seconds)</label>
+    <input type="number" id="set-frequency" value="10" min="5" />
+    
     <button id="save-settings">Save</button>
     <button id="test-ai-btn">Test Connection</button>
   `;
@@ -31,11 +42,13 @@
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
-  // Load settings
+  // Load settings (Model default updated)
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
+  document.getElementById("set-frequency").value = localStorage.getItem("ambient_frequency") || "10";
 
+  // Menu toggles
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
@@ -44,24 +57,22 @@
     localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
     localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
     localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
+    localStorage.setItem("ambient_frequency", document.getElementById("set-frequency").value.trim());
     settingsMenu.style.display = "none";
     console.log("✅ Settings saved.");
+    
+    // Restart loop with new frequency
+    startAmbientLoop();
   });
 
   document.getElementById("test-ai-btn").addEventListener("click", async () => {
     const apiKey = localStorage.getItem("ambient_api_key");
     if (!apiKey) return alert("Please enter and save an API key first.");
-    try {
-      const res = await fetch(chrome.runtime.getURL("assets.json"));
-      const data = await res.json();
-      await askAI("The group steps into a dark, gloomy forest.", data.images || [], data.audio || [], apiKey);
-    } catch (e) {
-      console.error("Error during test:", e);
-    }
+    await askAI("The group steps into a dark, gloomy forest.", cachedImages, cachedAudio, apiKey);
   });
 
 
-  // --- 2. INJECT OVERLAY ---
+  // --- 2. INJECT OVERLAY & AUDIO ---
   const overlay = document.createElement("div");
   overlay.id = "janitor-init-overlay";
   overlay.textContent = "[ initialize chat ]";
@@ -80,15 +91,19 @@
     setTimeout(() => overlay.remove(), 500);
 
     try {
+      // Load assets into memory
       const res = await fetch(chrome.runtime.getURL("assets.json"));
       const data = await res.json();
-      
-      if (data.audio && data.audio.length > 0) {
-        audio.src = chrome.runtime.getURL(data.audio[0]);
+      cachedImages = data.images || [];
+      cachedAudio = data.audio || [];
+
+      if (cachedAudio.length > 0) {
+        audio.src = chrome.runtime.getURL(cachedAudio[0]);
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
 
-      startChatObserver(data.images || [], data.audio || []);
+      // Start the polling loop
+      startAmbientLoop();
       
     } catch (e) {
       console.error("Error during initialization:", e);
@@ -96,26 +111,44 @@
   });
 })();
 
-// --- HELPER: Update Indicator ---
-function setIndicator(state) {
-  const ind = document.getElementById("ambient-indicator");
-  if (ind) ind.className = state;
+
+// --- 4. THE POLLING LOOP ---
+function startAmbientLoop() {
+  if (refreshInterval) clearInterval(refreshInterval);
+
+  const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
+  console.log(`⏱️ Starting ambient loop every ${freq} seconds.`);
+
+  refreshInterval = setInterval(() => {
+    const currentText = getLatestAIMessage();
+    
+    // If no text, or text hasn't changed since last check, do nothing.
+    if (!currentText || currentText === lastProcessedText) {
+      return; 
+    }
+
+    // Text changed! Update cache and fire API
+    lastProcessedText = currentText;
+    const apiKey = localStorage.getItem("ambient_api_key");
+    
+    if (apiKey) {
+      askAI(lastProcessedText, cachedImages, cachedAudio, apiKey);
+    } else {
+      setIndicator("idle");
+    }
+
+  }, freq * 1000);
 }
 
-// --- HELPER: Get Last Message (Robust Scraper) ---
+// --- HELPER: Get Last Message ---
 function getLatestAIMessage() {
-  // Janitor puts messages inside a virtual list
   const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
   if (!scroller) return null;
   
-  // Get all elements that might be message bubbles
+  // Find the last substantial block of text
   const textBlocks = scroller.querySelectorAll('div');
-  if (textBlocks.length === 0) return null;
-  
-  // Find the last block with substantial text (avoiding empty divs/buttons)
   for (let i = textBlocks.length - 1; i >= 0; i--) {
     const text = textBlocks[i].innerText.trim();
-    // Ensure it's an actual message and not the "Press button to send chat" placeholder
     if (text.length > 30 && !text.includes("Press button to send chat") && !text.includes("Token")) {
       return text;
     }
@@ -123,50 +156,10 @@ function getLatestAIMessage() {
   return null;
 }
 
-// --- 4. THE CHAT OBSERVER ---
-let debounceTimer = null;
-let lastProcessedText = ""; // THE FIX FOR SCROLLING
-
-function startChatObserver(images, audioFiles) {
-  console.log("👀 Watching chat...");
-
-  const observer = new MutationObserver(() => {
-    const currentText = getLatestAIMessage();
-    
-    // If no text, or if it's the exact same text as before (e.g. you're just scrolling)
-    // Ignore the mutation entirely.
-    if (!currentText || currentText === lastProcessedText) {
-      return; 
-    }
-
-    // Text changed! (New message, reroll, delete, or AI is typing)
-    lastProcessedText = currentText;
-    setIndicator("waiting"); // Turn Yellow
-
-    clearTimeout(debounceTimer);
-    
-    // Wait 2 seconds after the text STOPS changing
-    debounceTimer = setTimeout(async () => {
-      // Double-check that the text is still the same (meaning generation fully stopped)
-      if (getLatestAIMessage() === lastProcessedText) {
-        const apiKey = localStorage.getItem("ambient_api_key");
-        
-        if (apiKey) {
-          await askAI(lastProcessedText, images, audioFiles, apiKey);
-        } else {
-          setIndicator("idle");
-        }
-      }
-    }, 2000); // 2 seconds countdown
-  });
-
-  // Observe the chat container
-  const chatContainer = document.querySelector('[data-testid="virtuoso-scroller"]') || document.body;
-  observer.observe(chatContainer, {
-    childList: true,
-    subtree: true,
-    characterData: true
-  });
+// --- HELPER: Update Indicator ---
+function setIndicator(state) {
+  const ind = document.getElementById("ambient-indicator");
+  if (ind) ind.className = state;
 }
 
 
@@ -213,7 +206,7 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     try {
       const decision = JSON.parse(aiMessage);
       console.log("✅ Parsed decision:", decision);
-      setIndicator("idle"); // Turn Gray (Success!)
+      setIndicator("idle"); // Success
       
       // NEXT STEP: applyAmbience(decision);
       
