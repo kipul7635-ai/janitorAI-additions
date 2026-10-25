@@ -1,30 +1,78 @@
-/* Hide SoundCloud embeds */
-iframe[src*="soundcloud.com"],
-[class*="soundcloud"],
-[id*="soundcloud"] {
-    display: none !important;
-}
-
-/* Style for our initialization screen */
-#janitor-init-overlay {
+/* Top-center settings button */
+#ambient-settings-btn {
     position: fixed !important;
-    inset: 0 !important;
-    background-color: black !important;
-    color: white !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    z-index: 2147483647 !important; /* Max possible z-index */
+    top: 10px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 2147483646 !important;
+    background: rgba(15, 15, 20, 0.9) !important;
+    color: #fff !important;
+    border: 1px solid #444 !important;
+    border-radius: 20px !important;
+    padding: 6px 16px !important;
     font-family: monospace !important;
-    font-size: 24px !important;
-    letter-spacing: 2px !important;
+    font-size: 14px !important;
     cursor: pointer !important;
-    opacity: 1;
-    transition: opacity 0.5s ease-out !important;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3) !important;
 }
 
-/* Fade out animation */
-#janitor-init-overlay.fade-out {
-    opacity: 0 !important;
-    pointer-events: none !important;
+#ambient-settings-btn:hover {
+    background: #333 !important;
+}
+
+/* Settings Menu Modal */
+#ambient-settings-menu {
+    position: fixed !important;
+    top: 50px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 2147483647 !important;
+    background: rgba(15, 15, 20, 0.98) !important;
+    border: 1px solid #444 !important;
+    border-radius: 12px !important;
+    padding: 20px !important;
+    color: white !important;
+    display: none; /* Hidden by default */
+    flex-direction: column !important;
+    gap: 12px !important;
+    width: 85% !important;
+    max-width: 400px !important;
+    font-family: sans-serif !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+}
+
+#ambient-settings-menu h2 {
+    margin: 0 0 10px 0 !important;
+    font-size: 18px !important;
+    text-align: center !important;
+    font-family: monospace !important;
+}
+
+#ambient-settings-menu label {
+    font-size: 12px !important;
+    color: #aaa !important;
+    margin-bottom: -8px !important;
+}
+
+#ambient-settings-menu input {
+    background: #000 !important;
+    border: 1px solid #555 !important;
+    color: #0f0 !important; /* Hacker green text */
+    padding: 10px !important;
+    border-radius: 6px !important;
+    font-family: monospace !important;
+    font-size: 14px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+#ambient-settings-menu button {
+    background: #fff !important;
+    color: #000 !important;
+    border: none !important;
+    padding: 10px !important;
+    border-radius: 6px !important;
+    font-weight: bold !important;
+    margin-top: 10px !important;
+    cursor: pointer !important;
 }
