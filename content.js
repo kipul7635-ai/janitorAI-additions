@@ -1,13 +1,23 @@
 (function () {
   // --- 1. INJECT UI IMMEDIATELY ---
+  const uiWrapper = document.createElement("div");
+  uiWrapper.id = "ambient-ui-wrapper";
+
   const settingsBtn = document.createElement("button");
   settingsBtn.id = "ambient-settings-btn";
-  settingsBtn.textContent = "⚙️ Ambient Settings";
+  settingsBtn.innerHTML = "⚙️";
+
+  const indicator = document.createElement("div");
+  indicator.id = "ambient-indicator";
+  indicator.className = "idle"; // Default state
+
+  uiWrapper.appendChild(settingsBtn);
+  uiWrapper.appendChild(indicator);
 
   const settingsMenu = document.createElement("div");
   settingsMenu.id = "ambient-settings-menu";
   settingsMenu.innerHTML = `
-    <h2>Ambient Engine Settings</h2>
+    <h2>Ambient Engine</h2>
     
     <label>API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
@@ -18,11 +28,11 @@
     <label>Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
     
-    <button id="save-settings">Save & Close</button>
-    <button id="test-ai-btn">⚡ Test AI Connection</button>
+    <button id="save-settings">Save</button>
+    <button id="test-ai-btn">Test Connection</button>
   `;
 
-  document.body.appendChild(settingsBtn);
+  document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
   // Load settings
@@ -46,8 +56,6 @@
   document.getElementById("test-ai-btn").addEventListener("click", async () => {
     const apiKey = localStorage.getItem("ambient_api_key");
     if (!apiKey) return alert("Please enter and save an API key first.");
-    
-    // Fetch assets dynamically for the test
     try {
       const res = await fetch(chrome.runtime.getURL("assets.json"));
       const data = await res.json();
@@ -88,21 +96,73 @@
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
 
-      const apiKey = localStorage.getItem("ambient_api_key");
-      if (apiKey) {
-        const testChat = "The group steps into a dark, gloomy forest. Rain begins to fall.";
-        askAI(testChat, images, audioFiles, apiKey);
-      }
+      startChatObserver(images, audioFiles);
+      
     } catch (e) {
       console.error("Error during initialization:", e);
     }
   });
 })();
 
+// --- HELPER: Update Indicator ---
+function setIndicator(state) {
+  const ind = document.getElementById("ambient-indicator");
+  if (ind) ind.className = state;
+}
 
-// --- 4. THE AI FUNCTION ---
+
+// --- 4. THE CHAT OBSERVER ---
+let debounceTimer = null;
+
+function startChatObserver(images, audioFiles) {
+  console.log("👀 Watching chat for new AI messages...");
+
+  const observer = new MutationObserver((mutations) => {
+    const isGenerating = document.querySelector('button[title*="Stop"], button[aria-label*="Stop"]');
+    
+    if (isGenerating) {
+      clearTimeout(debounceTimer);
+      return; // If Janitor is still typing, do nothing.
+    }
+
+    clearTimeout(debounceTimer);
+    setIndicator("waiting"); // Turn yellow as soon as text stops changing
+
+    debounceTimer = setTimeout(() => {
+      const lastMessage = getLatestAIMessage();
+      
+      if (lastMessage) {
+        const apiKey = localStorage.getItem("ambient_api_key");
+        if (apiKey) {
+          askAI(lastMessage, images, audioFiles, apiKey);
+        } else {
+          setIndicator("idle"); // Reset if no API key
+        }
+      } else {
+        setIndicator("idle");
+      }
+    }, 1500); // 1.5 seconds of silence
+  });
+
+  const chatContainer = document.querySelector('[data-testid="virtuoso-scroller"]') || document.body;
+  observer.observe(chatContainer, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+}
+
+function getLatestAIMessage() {
+  const messages = document.querySelectorAll('[class*="message"], [data-message-author-role="assistant"]');
+  if (messages.length === 0) return null;
+  const lastMsg = messages[messages.length - 1];
+  return lastMsg.innerText.trim();
+}
+
+
+// --- 5. THE AI FUNCTION ---
 async function askAI(chatText, availableImages, availableAudio, apiKey) {
-  console.log("🧠 Asking AI...");
+  setIndicator("generating"); // Turn Green
   
   const model = localStorage.getItem("ambient_model") || "meta-llama/llama-3-8b-instruct:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
@@ -132,24 +192,30 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     if (result.error) {
       console.error("API Error:", result.error);
-      alert("API Error: " + result.error.message);
+      setIndicator("error"); // Turn Red
+      setTimeout(() => setIndicator("idle"), 3000); // Reset after 3s
       return;
     }
 
     const aiMessage = result.choices[0].message.content;
-    console.log("🤖 AI responded with:", aiMessage);
+    console.log("🤖 Orchestral AI responded with:", aiMessage);
     
     try {
       const decision = JSON.parse(aiMessage);
       console.log("✅ Parsed decision:", decision);
-      alert("AI Decided:\n" + JSON.stringify(decision, null, 2));
+      setIndicator("idle"); // Turn Gray (Success!)
+      
+      // Next step: applyAmbience(decision);
+      
     } catch (e) {
       console.error("Failed to parse AI JSON:", e);
-      alert("AI didn't return valid JSON. Check console.");
+      setIndicator("error");
+      setTimeout(() => setIndicator("idle"), 3000);
     }
 
   } catch (e) {
     console.error("Fetch to API failed:", e);
-    alert("Network error. Check console.");
+    setIndicator("error");
+    setTimeout(() => setIndicator("idle"), 3000);
   }
 }
