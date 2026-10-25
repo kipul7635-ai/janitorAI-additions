@@ -9,7 +9,7 @@
 
   const indicator = document.createElement("div");
   indicator.id = "ambient-indicator";
-  indicator.className = "idle"; // Default state
+  indicator.className = "idle";
 
   uiWrapper.appendChild(settingsBtn);
   uiWrapper.appendChild(indicator);
@@ -18,16 +18,12 @@
   settingsMenu.id = "ambient-settings-menu";
   settingsMenu.innerHTML = `
     <h2>Ambient Engine</h2>
-    
     <label>API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
-    
     <label>Model</label>
-    <input type="text" id="set-model" placeholder="meta-llama/llama-3-8b-instruct:free" />
-    
+    <input type="text" id="set-model" placeholder="nvidia/nemotron-3-ultra-550b-a55b:free" />
     <label>Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
-    
     <button id="save-settings">Save</button>
     <button id="test-ai-btn">Test Connection</button>
   `;
@@ -37,10 +33,9 @@
 
   // Load settings
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
-  document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "meta-llama/llama-3-8b-instruct:free";
+  document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
-  // Menu toggles
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
@@ -59,15 +54,14 @@
     try {
       const res = await fetch(chrome.runtime.getURL("assets.json"));
       const data = await res.json();
-      const testChat = "The group steps into a dark, gloomy forest. Rain begins to fall.";
-      await askAI(testChat, data.images || [], data.audio || [], apiKey);
+      await askAI("The group steps into a dark, gloomy forest.", data.images || [], data.audio || [], apiKey);
     } catch (e) {
-      console.error("Could not load assets.json for test", e);
+      console.error("Error during test:", e);
     }
   });
 
 
-  // --- 2. INJECT OVERLAY IMMEDIATELY ---
+  // --- 2. INJECT OVERLAY ---
   const overlay = document.createElement("div");
   overlay.id = "janitor-init-overlay";
   overlay.textContent = "[ initialize chat ]";
@@ -88,15 +82,13 @@
     try {
       const res = await fetch(chrome.runtime.getURL("assets.json"));
       const data = await res.json();
-      const images = data.images || [];
-      const audioFiles = data.audio || [];
-
-      if (audioFiles.length > 0) {
-        audio.src = chrome.runtime.getURL(audioFiles[0]);
+      
+      if (data.audio && data.audio.length > 0) {
+        audio.src = chrome.runtime.getURL(data.audio[0]);
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
 
-      startChatObserver(images, audioFiles);
+      startChatObserver(data.images || [], data.audio || []);
       
     } catch (e) {
       console.error("Error during initialization:", e);
@@ -110,40 +102,65 @@ function setIndicator(state) {
   if (ind) ind.className = state;
 }
 
+// --- HELPER: Get Last Message (Robust Scraper) ---
+function getLatestAIMessage() {
+  // Janitor puts messages inside a virtual list
+  const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
+  if (!scroller) return null;
+  
+  // Get all elements that might be message bubbles
+  const textBlocks = scroller.querySelectorAll('div');
+  if (textBlocks.length === 0) return null;
+  
+  // Find the last block with substantial text (avoiding empty divs/buttons)
+  for (let i = textBlocks.length - 1; i >= 0; i--) {
+    const text = textBlocks[i].innerText.trim();
+    // Ensure it's an actual message and not the "Press button to send chat" placeholder
+    if (text.length > 30 && !text.includes("Press button to send chat") && !text.includes("Token")) {
+      return text;
+    }
+  }
+  return null;
+}
 
 // --- 4. THE CHAT OBSERVER ---
 let debounceTimer = null;
+let lastProcessedText = ""; // THE FIX FOR SCROLLING
 
 function startChatObserver(images, audioFiles) {
-  console.log("👀 Watching chat for new AI messages...");
+  console.log("👀 Watching chat...");
 
-  const observer = new MutationObserver((mutations) => {
-    const isGenerating = document.querySelector('button[title*="Stop"], button[aria-label*="Stop"]');
+  const observer = new MutationObserver(() => {
+    const currentText = getLatestAIMessage();
     
-    if (isGenerating) {
-      clearTimeout(debounceTimer);
-      return; // If Janitor is still typing, do nothing.
+    // If no text, or if it's the exact same text as before (e.g. you're just scrolling)
+    // Ignore the mutation entirely.
+    if (!currentText || currentText === lastProcessedText) {
+      return; 
     }
 
-    clearTimeout(debounceTimer);
-    setIndicator("waiting"); // Turn yellow as soon as text stops changing
+    // Text changed! (New message, reroll, delete, or AI is typing)
+    lastProcessedText = currentText;
+    setIndicator("waiting"); // Turn Yellow
 
-    debounceTimer = setTimeout(() => {
-      const lastMessage = getLatestAIMessage();
-      
-      if (lastMessage) {
+    clearTimeout(debounceTimer);
+    
+    // Wait 2 seconds after the text STOPS changing
+    debounceTimer = setTimeout(async () => {
+      // Double-check that the text is still the same (meaning generation fully stopped)
+      if (getLatestAIMessage() === lastProcessedText) {
         const apiKey = localStorage.getItem("ambient_api_key");
+        
         if (apiKey) {
-          askAI(lastMessage, images, audioFiles, apiKey);
+          await askAI(lastProcessedText, images, audioFiles, apiKey);
         } else {
-          setIndicator("idle"); // Reset if no API key
+          setIndicator("idle");
         }
-      } else {
-        setIndicator("idle");
       }
-    }, 1500); // 1.5 seconds of silence
+    }, 2000); // 2 seconds countdown
   });
 
+  // Observe the chat container
   const chatContainer = document.querySelector('[data-testid="virtuoso-scroller"]') || document.body;
   observer.observe(chatContainer, {
     childList: true,
@@ -152,19 +169,12 @@ function startChatObserver(images, audioFiles) {
   });
 }
 
-function getLatestAIMessage() {
-  const messages = document.querySelectorAll('[class*="message"], [data-message-author-role="assistant"]');
-  if (messages.length === 0) return null;
-  const lastMsg = messages[messages.length - 1];
-  return lastMsg.innerText.trim();
-}
-
 
 // --- 5. THE AI FUNCTION ---
 async function askAI(chatText, availableImages, availableAudio, apiKey) {
   setIndicator("generating"); // Turn Green
   
-  const model = localStorage.getItem("ambient_model") || "meta-llama/llama-3-8b-instruct:free";
+  const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background and music. 
@@ -192,8 +202,8 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     if (result.error) {
       console.error("API Error:", result.error);
-      setIndicator("error"); // Turn Red
-      setTimeout(() => setIndicator("idle"), 3000); // Reset after 3s
+      setIndicator("error"); 
+      setTimeout(() => setIndicator("idle"), 3000); 
       return;
     }
 
@@ -205,7 +215,7 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
       console.log("✅ Parsed decision:", decision);
       setIndicator("idle"); // Turn Gray (Success!)
       
-      // Next step: applyAmbience(decision);
+      // NEXT STEP: applyAmbience(decision);
       
     } catch (e) {
       console.error("Failed to parse AI JSON:", e);
