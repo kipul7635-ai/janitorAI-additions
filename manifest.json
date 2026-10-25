@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "My Janitor Theme",
-  "version": "1.2",
-  "description": "Custom appearance and music for Janitor AI",
+  "name": "jAI dynamic ambience",
+  "version": "1.3",
+  "description": "Dynamic ambient engine for Janitor AI chats.",
   "content_scripts": [
     {
-      "matches": ["*://*.janitorai.com/*"],
+      "matches": ["*://*.janitorai.com/chats/*"],
       "css": ["styles.css"],
       "js": ["content.js"]
     }
