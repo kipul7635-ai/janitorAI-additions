@@ -1,3 +1,159 @@
+/* Hide SoundCloud embeds */
+iframe[src*="soundcloud.com"],
+[class*="soundcloud"],
+[id*="soundcloud"] {
+    display: none !important;
+}
+
+/* Initialize Overlay */
+#janitor-init-overlay {
+    position: fixed !important;
+    inset: 0 !important;
+    background-color: black !important;
+    color: white !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    z-index: 2147483647 !important;
+    font-family: monospace !important;
+    font-size: 24px !important;
+    letter-spacing: 2px !important;
+    cursor: pointer !important;
+    opacity: 1;
+    transition: opacity 0.5s ease-out !important;
+}
+
+#janitor-init-overlay.fade-out {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* --- TOP LEFT UI WRAPPER (Moved closer to edge) --- */
+#ambient-ui-wrapper {
+    position: fixed !important;
+    top: 70px !important; 
+    left: 4px !important; /* Closer to the left edge */
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important; /* Tighter gap */
+    z-index: 2147483646 !important;
+}
+
+/* Cogwheel Button */
+#ambient-settings-btn {
+    background: rgba(20, 20, 25, 0.7) !important;
+    backdrop-filter: blur(8px) !important;
+    color: #e4e4e7 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 50% !important;
+    width: 36px !important;
+    height: 36px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 18px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+#ambient-settings-btn:hover {
+    background: rgba(40, 40, 45, 0.9) !important;
+    transform: scale(1.05) !important;
+}
+
+/* Glowing Indicator Sphere */
+#ambient-indicator {
+    width: 12px !important;
+    height: 12px !important;
+    border-radius: 50% !important;
+    transition: all 0.3s ease !important;
+}
+
+/* Indicator States */
+#ambient-indicator.idle { background: #52525b !important; box-shadow: 0 0 5px #52525b !important; }
+#ambient-indicator.waiting { background: #eab308 !important; box-shadow: 0 0 10px #eab308 !important; }
+#ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
+#ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
+
+/* --- MINIMALIST SETTINGS MENU --- */
+#ambient-settings-menu {
+    position: fixed !important;
+    top: 120px !important;
+    left: 4px !important; /* Aligned with UI wrapper */
+    z-index: 2147483647 !important;
+    background: rgba(24, 24, 27, 0.95) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px !important;
+    padding: 20px !important;
+    color: #e4e4e7 !important;
+    display: none;
+    flex-direction: column !important;
+    gap: 16px !important;
+    width: 300px !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+}
+
+#ambient-settings-menu h2 {
+    margin: 0 0 5px 0 !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+    color: #fff !important;
+}
+
+#ambient-settings-menu label {
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: #a1a1aa !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    margin-bottom: -10px !important;
+}
+
+#ambient-settings-menu input {
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    color: #fff !important;
+    padding: 10px 12px !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    transition: border 0.2s ease !important;
+}
+
+#ambient-settings-menu input:focus {
+    outline: none !important;
+    border-color: #22c55e !important;
+}
+
+#ambient-settings-menu button {
+    background: #fff !important;
+    color: #000 !important;
+    border: none !important;
+    padding: 10px !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    transition: background 0.2s ease !important;
+}
+
+#ambient-settings-menu button:hover {
+    background: #d4d4d8 !important;
+}
+
+#test-ai-btn {
+    background: transparent !important;
+    color: #e4e4e7 !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+#test-ai-btn:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
 /* --- WEATHER ENGINE --- */
 #ambient-weather-canvas {
     position: fixed !important;
