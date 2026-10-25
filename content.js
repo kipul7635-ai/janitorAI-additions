@@ -10,21 +10,30 @@
 
     const style = document.createElement("style");
     style.textContent = `
-      /* Set the background on the body, the layout background, and the main container */
-      body,
-      ._chatLayoutBackground_tront_18,
-      ._chatLayoutContainer_tront_8 {
+      /* 1. Put the image on the absolute background */
+      html, body {
         background-image: url("${url}") !important;
         background-size: cover !important;
         background-position: center !important;
         background-attachment: fixed !important;
         background-repeat: no-repeat !important;
+        background-color: transparent !important;
       }
 
-      /* Make the inner wrapper elements transparent so your image isn't covered */
+      /* 2. Strip the backgrounds from all the main structural wrappers */
+      #root, 
+      #__next, 
+      main, 
+      [class*="layout"], 
+      [class*="Layout"], 
+      [class*="background"], 
+      [class*="Background"],
+      [class*="container"],
+      [class*="Container"],
+      [class*="wrapper"],
+      [class*="Wrapper"],
       [data-testid="virtuoso-scroller"],
-      ._messagesWrapper_1swu7_1,
-      ._messagesMain_1swu7_10 {
+      [data-testid="virtuoso-item-list"] {
         background: transparent !important;
       }
     `;
