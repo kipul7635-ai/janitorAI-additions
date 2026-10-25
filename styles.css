@@ -28,14 +28,14 @@ iframe[src*="soundcloud.com"],
     pointer-events: none !important;
 }
 
-/* --- TOP LEFT UI WRAPPER (Moved down to 70px) --- */
+/* --- TOP LEFT UI WRAPPER (Moved closer to edge) --- */
 #ambient-ui-wrapper {
     position: fixed !important;
     top: 70px !important; 
-    left: 12px !important;
+    left: 4px !important; /* Closer to the left edge */
     display: flex !important;
     align-items: center !important;
-    gap: 10px !important;
+    gap: 6px !important; /* Tighter gap */
     z-index: 2147483646 !important;
 }
 
@@ -75,11 +75,11 @@ iframe[src*="soundcloud.com"],
 #ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
 #ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
 
-/* --- MINIMALIST SETTINGS MENU (Moved down to 120px) --- */
+/* --- MINIMALIST SETTINGS MENU --- */
 #ambient-settings-menu {
     position: fixed !important;
     top: 120px !important;
-    left: 12px !important;
+    left: 4px !important; /* Aligned with UI wrapper */
     z-index: 2147483647 !important;
     background: rgba(24, 24, 27, 0.95) !important;
     backdrop-filter: blur(12px) !important;
