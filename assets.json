@@ -1,0 +1,10 @@
+{
+  "images": [
+    "images/modern_dark_street.jpg",
+    "images/inside_forest.jpg", 
+    "images/modern_bus_stop"
+  ],
+  "audio": [
+    "audio/mysterious_ambience.mp3", 
+  ], 
+}
