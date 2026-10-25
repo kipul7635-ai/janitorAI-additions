@@ -1,0 +1,20 @@
+/* Change the page background */
+body {
+  background-color: #1a1a2e !important;
+}
+
+/* A banner so you can instantly confirm the extension is working.
+   Remove this later once you trust it. */
+body::after {
+  content: "Extension loaded ✔";
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 999999;
+  background: #ff00ff !important;
+  color: white;
+  text-align: center;
+  padding: 8px;
+  font-size: 16px;
+}
