@@ -1,5 +1,4 @@
-let refreshInterval = null; // Holds our timer
-let lastProcessedText = ""; // Prevents API spam if the text hasn't changed
+let refreshInterval = null; 
 let cachedImages = [];
 let cachedAudio = [];
 
@@ -42,7 +41,7 @@ let cachedAudio = [];
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
-  // Load settings (Model default updated)
+  // Load settings
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
@@ -61,7 +60,6 @@ let cachedAudio = [];
     settingsMenu.style.display = "none";
     console.log("✅ Settings saved.");
     
-    // Restart loop with new frequency
     startAmbientLoop();
   });
 
@@ -91,7 +89,6 @@ let cachedAudio = [];
     setTimeout(() => overlay.remove(), 500);
 
     try {
-      // Load assets into memory
       const res = await fetch(chrome.runtime.getURL("assets.json"));
       const data = await res.json();
       cachedImages = data.images || [];
@@ -102,7 +99,6 @@ let cachedAudio = [];
         audio.play().catch(e => console.error("Audio playback failed:", e));
       }
 
-      // Start the polling loop
       startAmbientLoop();
       
     } catch (e) {
@@ -112,29 +108,26 @@ let cachedAudio = [];
 })();
 
 
-// --- 4. THE POLLING LOOP ---
+// --- 4. THE GUARANTEED POLLING LOOP ---
 function startAmbientLoop() {
   if (refreshInterval) clearInterval(refreshInterval);
 
   const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
-  console.log(`⏱️ Starting ambient loop every ${freq} seconds.`);
+  console.log(`⏱️ Starting GUARANTEED ambient loop every ${freq} seconds.`);
 
   refreshInterval = setInterval(() => {
-    const currentText = getLatestAIMessage();
+    // 1. Try to get the latest message
+    let currentText = getLatestAIMessage();
     
-    // If no text, or text hasn't changed since last check, do nothing.
-    if (!currentText || currentText === lastProcessedText) {
-      return; 
+    // 2. Fallback so the AI always has something to read (in case the scraper fails)
+    if (!currentText) {
+        currentText = "No new text detected. Maintain the current atmosphere.";
     }
 
-    // Text changed! Update cache and fire API
-    lastProcessedText = currentText;
+    // 3. Fire the API unconditionally
     const apiKey = localStorage.getItem("ambient_api_key");
-    
     if (apiKey) {
-      askAI(lastProcessedText, cachedImages, cachedAudio, apiKey);
-    } else {
-      setIndicator("idle");
+      askAI(currentText, cachedImages, cachedAudio, apiKey);
     }
 
   }, freq * 1000);
@@ -145,7 +138,6 @@ function getLatestAIMessage() {
   const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
   if (!scroller) return null;
   
-  // Find the last substantial block of text
   const textBlocks = scroller.querySelectorAll('div');
   for (let i = textBlocks.length - 1; i >= 0; i--) {
     const text = textBlocks[i].innerText.trim();
