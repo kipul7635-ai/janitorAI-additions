@@ -215,10 +215,9 @@ let lastDecision = null; // AI Memory
 
 // --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
-  const bgWrapper = document.getElementById("ambient-bg-wrapper");
-  const dimOverlay = document.getElementById("ambient-dim-overlay");
-  if (bgWrapper) bgWrapper.style.filter = `blur(${blur}px)`;
-  if (dimOverlay) dimOverlay.style.opacity = dim / 100;
+  // Set CSS variables on the document root so CSS can read them
+  document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
+  document.documentElement.style.setProperty('--ambient-dim', dim / 100);
 }
 
 // --- HELPER: Populate Dropdowns ---
