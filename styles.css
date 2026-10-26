@@ -1,6 +1,22 @@
 /* Hide SoundCloud embeds */
 iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
 
+/* --- STRIP JANITOR AI BACKGROUNDS (So ours shows through) --- */
+html, body, #root, #__next, main, 
+[class*="layout"], [class*="Layout"], 
+[class*="background"], [class*="Background"], 
+[class*="container"], [class*="Container"], 
+[class*="wrapper"], [class*="Wrapper"],
+[data-testid="virtuoso-scroller"], [data-testid="virtuoso-item-list"] { 
+    background: transparent !important; 
+    background-color: transparent !important;
+}
+
+/* Hide Janitor's native blurred background image */
+._chatLayoutBackground_aei6y_25 {
+    display: none !important;
+}
+
 /* --- BACKGROUND ENGINE --- */
 #ambient-bg-wrapper {
     position: fixed !important;
@@ -38,7 +54,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     top: 0 !important; left: 0 !important;
     width: 100% !important; height: 100% !important;
     background-color: black !important;
-    opacity: 0.5 !important; /* Default dimness */
+    opacity: 0.4 !important;
     transition: opacity 0.5s ease !important;
     z-index: 0 !important;
 }
