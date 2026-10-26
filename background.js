@@ -1,6 +1,5 @@
 // background.js
 
-// 1. Watch for bot messages being saved
 chrome.webRequest.onBeforeRequest.addListener(
   function(details) {
     if (details.method === "POST" && details.url.includes("/messages")) {
@@ -23,18 +22,16 @@ chrome.webRequest.onBeforeRequest.addListener(
   ["requestBody"]
 );
 
-// 2. Listen for image generation requests from content.js
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_image") {
     fetchImage(request.prompt, request.accountId, request.apiToken)
-      .then(imageUrl => sendResponse({ success: true, imageUrl: imageUrl }))
+      .then(result => sendResponse({ success: true, imageUrl: result.imageUrl, provider: result.provider }))
       .catch(error => sendResponse({ success: false, error: error.message }));
       
     return true;
   }
 });
 
-// 3. The Hybrid Image Generator (Cloudflare with Pollinations Fallback)
 async function fetchImage(prompt, accountId, apiToken) {
   const styleModifiers = ", safe for work, family friendly, environment concept art, background scenery, anime visual novel background, highly detailed, clean line art, no humans, no animals, no creatures, no characters, no people, no anatomy, empty landscape";
   const fullPrompt = prompt + styleModifiers;
@@ -57,7 +54,7 @@ async function fetchImage(prompt, accountId, apiToken) {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        return `data:image/jpeg;base64,${data.result.image}`;
+        return { imageUrl: `data:image/jpeg;base64,${data.result.image}`, provider: 'cloudflare' };
       } else {
         throw new Error(data.errors?.[0]?.message || "Cloudflare generation failed");
       }
@@ -71,5 +68,5 @@ async function fetchImage(prompt, accountId, apiToken) {
   const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1080&height=1920&nologo=true&seed=${seed}`;
   
   console.log("🔄 Using Pollinations fallback:", pollinationsUrl);
-  return pollinationsUrl;
+  return { imageUrl: pollinationsUrl, provider: 'pollinations' };
 }
