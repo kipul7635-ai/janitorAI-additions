@@ -1,4 +1,37 @@
-/* --- 1. STRIP JANITOR AI BACKGROUNDS (Aggressive) --- */
+/* --- 1. JANITOR AI DARK THEME OVERRIDES (Grey -> Black) --- */
+:root {
+    --bg-primary: rgba(10, 10, 12, 0.85) !important;
+    --bg-secondary: rgba(15, 15, 20, 0.9) !important;
+    --colour-grey-550: transparent !important;
+    --colour-grey-600: transparent !important;
+}
+
+/* Top Bar */
+._headerContainer_fcgn6_1 {
+    background: rgba(10, 10, 12, 0.85) !important;
+    backdrop-filter: blur(12px) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Chat Input Box */
+._chatInputInner_or9hd_30 {
+    background: rgba(10, 10, 12, 0.85) !important;
+    backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Character Description Popup */
+._accordionPanel_tjtly_23 {
+    background: rgba(10, 10, 12, 0.95) !important;
+    backdrop-filter: blur(12px) !important;
+}
+
+/* Dropdown Menus */
+._menuList_yuabn_8, .react-select__menu {
+    background: rgba(10, 10, 12, 0.95) !important;
+}
+
+/* --- 2. STRIP JANITOR AI BACKGROUNDS --- */
 html, body { 
     background: transparent !important; 
     background-color: transparent !important;
@@ -6,12 +39,10 @@ html, body {
 
 #root {
     background: transparent !important;
-    background-color: transparent !important;
     position: relative !important;
-    z-index: 1 !important; /* Force the app above our background */
+    z-index: 1 !important;
 }
 
-/* Force all main layout wrappers, main areas, and scrollers to be transparent */
 main, 
 ._messagesMain_1reev_15,
 ._scroller_1reev_25,
@@ -26,23 +57,18 @@ main,
     box-shadow: none !important;
 }
 
-/* Hide Janitor's native blurred background image element */
-._chatLayoutBackground_aei6y_25 {
-    display: none !important;
-}
-
-/* Hide SoundCloud embeds */
+._chatLayoutBackground_aei6y_25 { display: none !important; }
 iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
 
-/* --- 2. OUR BACKGROUND ENGINE --- */
+/* --- 3. OUR BACKGROUND ENGINE --- */
 #ambient-bg-wrapper {
     position: fixed !important;
     top: -5% !important; left: -5% !important;
     width: 110vw !important; height: 110vh !important;
-    z-index: 0 !important; /* Sits behind #root */
+    z-index: 0 !important;
     pointer-events: none !important;
     animation: sway 25s ease-in-out infinite alternate !important;
-    transition: filter 0.5s ease !important;
+    filter: blur(var(--ambient-blur, 10px)) !important;
     overflow: hidden !important;
 }
 
@@ -62,21 +88,18 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     transition: opacity 2s ease-in-out !important;
 }
 
-.ambient-bg-img.active {
-    opacity: 1 !important;
-}
+.ambient-bg-img.active { opacity: 1 !important; }
 
 #ambient-dim-overlay {
     position: absolute !important;
     top: 0 !important; left: 0 !important;
     width: 100% !important; height: 100% !important;
     background-color: black !important;
-    opacity: 0.4 !important;
-    transition: opacity 0.5s ease !important;
+    opacity: var(--ambient-dim, 0.4) !important;
     z-index: 1 !important;
 }
 
-/* --- 3. WEATHER OVERLAYS (Smooth Fade) --- */
+/* --- 4. WEATHER OVERLAYS (Smooth Fade) --- */
 #ambient-weather-canvas {
     position: fixed !important; inset: 0 !important;
     pointer-events: none !important;
@@ -120,7 +143,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     transition: opacity 2s ease !important;
 }
 
-/* --- 4. INITIALIZATION OVERLAY --- */
+/* --- 5. INITIALIZATION OVERLAY --- */
 #janitor-init-overlay {
     position: fixed !important; inset: 0 !important;
     background-color: black !important;
@@ -133,7 +156,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 #janitor-init-overlay.fade-out { opacity: 0 !important; pointer-events: none !important; }
 
-/* --- 5. UI PANEL --- */
+/* --- 6. UI PANEL --- */
 #ambient-ui-wrapper {
     position: fixed !important; top: 70px !important; left: 4px !important;
     display: flex !important; align-items: center !important; gap: 6px !important;
@@ -157,7 +180,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 #ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
 #ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
 
-/* --- 6. SETTINGS MENU --- */
+/* --- 7. SETTINGS MENU --- */
 #ambient-settings-menu {
     position: fixed !important; top: 120px !important; left: 4px !important;
     z-index: 2147483647 !important;
