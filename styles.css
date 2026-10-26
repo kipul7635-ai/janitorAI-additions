@@ -36,36 +36,17 @@ main, ._messagesMain_1reev_15, ._scroller_1reev_25, [data-testid="virtuoso-scrol
 iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
 
 /* Black Scrollbar */
-::-webkit-scrollbar {
-    width: 8px !important;
-    height: 8px !important;
-}
-::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.8) !important;
-    border-radius: 4px !important;
-}
-::-webkit-scrollbar-thumb {
-    background: #333 !important;
-    border-radius: 4px !important;
-    border: 1px solid #111 !important;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: #555 !important;
-}
+::-webkit-scrollbar { width: 8px !important; height: 8px !important; }
+::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.8) !important; border-radius: 4px !important; }
+::-webkit-scrollbar-thumb { background: #333 !important; border-radius: 4px !important; border: 1px solid #111 !important; }
+::-webkit-scrollbar-thumb:hover { background: #555 !important; }
 
-/* --- 3. ACCESSIBILITY: TEXT BACKDROP & SHADOW --- */
-p, span, em, strong, h1, h2, h3, h4, h5, h6 {
-    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.9), 0px 0px 6px rgba(0, 0, 0, 0.6) !important;
-}
-
-[class*="messageBody"], .css-7w4zgl, [class*="nameText"], [class*="messageNameContainer"], ._accordionPanel_tjtly_23 {
-    background-color: rgba(0, 0, 0, var(--ambient-text-bg, 0.2)) !important;
-    backdrop-filter: blur(6px) !important;
-    padding: 8px 12px !important;
-    border-radius: 8px !important;
-    margin-top: 4px !important;
-    margin-bottom: 4px !important;
-    transition: background-color 0.3s ease !important;
+/* --- 3. ACCESSIBILITY: HEAVY TEXT SHADOW --- */
+p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
+    text-shadow: 
+        0px 1px 3px rgba(0, 0, 0, 1), 
+        0px 2px 6px rgba(0, 0, 0, 0.8), 
+        0px 0px 10px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* --- 4. OUR BACKGROUND ENGINE --- */
@@ -104,6 +85,8 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6 {
 #ambient-weather-canvas {
     position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99998 !important;
     transition: opacity 1.5s ease !important;
+    will-change: transform !important; /* Fixes scroll stuttering */
+    transform: translateZ(0) !important; /* Forces GPU rendering */
 }
 
 /* Beautiful layered volumetric fog */
