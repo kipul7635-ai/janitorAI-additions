@@ -35,7 +35,24 @@ main, ._messagesMain_1reev_15, ._scroller_1reev_25, [data-testid="virtuoso-scrol
 ._chatLayoutBackground_aei6y_25 { display: none !important; }
 iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
 
-/* --- 3. OUR BACKGROUND ENGINE --- */
+/* --- 3. ACCESSIBILITY: TEXT BACKDROP & SHADOW --- */
+/* Text Shadow for readability */
+p, span, em, strong, h1, h2, h3, h4, h5, h6 {
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.9), 0px 0px 6px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* The text backdrop box */
+.css-7w4zgl {
+    background-color: rgba(0, 0, 0, var(--ambient-text-bg, 0.2)) !important;
+    backdrop-filter: blur(4px) !important;
+    padding: 12px 16px !important;
+    border-radius: 8px !important;
+    margin-top: 4px !important;
+    margin-bottom: 4px !important;
+    transition: background-color 0.3s ease !important;
+}
+
+/* --- 4. OUR BACKGROUND ENGINE --- */
 #ambient-bg-wrapper {
     position: fixed !important; top: -5% !important; left: -5% !important;
     width: 110vw !important; height: 110vh !important;
@@ -67,10 +84,9 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     z-index: 1 !important;
 }
 
-/* --- 4. WEATHER OVERLAYS --- */
+/* --- 5. WEATHER OVERLAYS --- */
 #ambient-weather-canvas {
-    position: fixed !important; inset: 0 !important;
-    pointer-events: none !important; z-index: 99998 !important;
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99998 !important;
     transition: opacity 1.5s ease !important;
 }
 
@@ -98,7 +114,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     opacity: 0 !important; transition: opacity 2s ease !important;
 }
 
-/* --- 5. INITIALIZATION OVERLAY --- */
+/* --- 6. INITIALIZATION OVERLAY --- */
 #janitor-init-overlay {
     position: fixed !important; inset: 0 !important; background-color: black !important;
     color: white !important; display: flex !important; align-items: center !important; justify-content: center !important;
@@ -107,7 +123,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 #janitor-init-overlay.fade-out { opacity: 0 !important; pointer-events: none !important; }
 
-/* --- 6. UI PANEL (Vertical Stack) --- */
+/* --- 7. UI PANEL --- */
 #ambient-ui-wrapper {
     position: fixed !important; top: 70px !important; left: 4px !important;
     display: flex !important; flex-direction: column !important; align-items: center !important; gap: 10px !important;
@@ -123,31 +139,16 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 #ambient-settings-btn:hover { background: rgba(40, 40, 45, 0.9) !important; }
 
-/* Indicator Dots Container */
-#ambient-indicators {
-    display: flex !important; flex-direction: column !important; gap: 6px !important; align-items: center !important;
-}
-
-.dot {
-    width: 10px !important; height: 10px !important; border-radius: 50% !important;
-    transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
-}
-
-/* Default Idle State */
+#ambient-indicators { display: flex !important; flex-direction: column !important; gap: 6px !important; align-items: center !important; }
+.dot { width: 10px !important; height: 10px !important; border-radius: 50% !important; transition: background-color 0.2s ease, box-shadow 0.2s ease !important; }
 .dot.idle { background: #52525b !important; box-shadow: 0 0 4px #52525b !important; }
-
-/* Loading State (Yellow) */
 .dot.loading { background: #eab308 !important; box-shadow: 0 0 8px #eab308 !important; }
-
-/* Success States */
 #dot-orch.success { background: #22c55e !important; box-shadow: 0 0 10px #22c55e !important; }
 #dot-cf.success { background: #3b82f6 !important; box-shadow: 0 0 10px #3b82f6 !important; }
 #dot-poll.success { background: #a855f7 !important; box-shadow: 0 0 10px #a855f7 !important; }
-
-/* Error State (Red) */
 .dot.error { background: #ef4444 !important; box-shadow: 0 0 10px #ef4444 !important; }
 
-/* --- 7. SETTINGS MENU --- */
+/* --- 8. SETTINGS MENU --- */
 #ambient-settings-menu {
     position: fixed !important; top: 140px !important; left: 4px !important;
     z-index: 2147483647 !important; background: rgba(24, 24, 27, 0.95) !important; backdrop-filter: blur(12px) !important;
@@ -155,6 +156,7 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
     padding: 20px !important; color: #e4e4e7 !important; display: none; flex-direction: column !important; 
     gap: 12px !important; width: 300px !important; font-family: -apple-system, sans-serif !important;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+    max-height: 80vh !important; overflow-y: auto !important;
 }
 
 #ambient-settings-menu h2 { margin: 0 0 5px 0 !important; font-size: 16px !important; color: #fff !important; }
