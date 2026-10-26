@@ -43,14 +43,19 @@ let isGeneratingBg = false;
   settingsMenu.id = "ambient-settings-menu";
   settingsMenu.innerHTML = `
     <h2>Ambient Engine</h2>
-    <label>API Key</label>
+    <label>OpenRouter API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
     
-    <label>Model</label>
+    <label>OpenRouter Model</label>
     <input type="text" id="set-model" placeholder="nvidia/nemotron-3-ultra-550b-a55b:free" />
     
-    <label>Proxy URL</label>
+    <label>OpenRouter Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
+
+    <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
+
+    <label>Together AI API Key (for FLUX)</label>
+    <input type="password" id="set-together-api-key" placeholder="Enter Together AI Key" />
 
     <label>Background Blur (<span id="blur-val">10</span>px)</label>
     <input type="range" id="set-blur" min="0" max="30" value="10" />
@@ -120,6 +125,7 @@ let isGeneratingBg = false;
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
+  document.getElementById("set-together-api-key").value = localStorage.getItem("ambient_together_api_key") || "";
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
@@ -162,6 +168,7 @@ let isGeneratingBg = false;
     localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
     localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
     localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
+    localStorage.setItem("ambient_together_api_key", document.getElementById("set-together-api-key").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
     settingsMenu.style.display = "none";
@@ -169,7 +176,7 @@ let isGeneratingBg = false;
 
   document.getElementById("test-ai-btn").addEventListener("click", async () => {
     const apiKey = localStorage.getItem("ambient_api_key");
-    if (!apiKey) return alert("Please enter and save an API key first.");
+    if (!apiKey) return alert("Please enter and save an OpenRouter API key first.");
     let actualChat = getLatestChatContext() || "The group steps into a dark, gloomy forest. Rain begins to fall.";
     await askAI(actualChat, cachedAudio, apiKey);
   });
@@ -192,7 +199,7 @@ let isGeneratingBg = false;
     setTimeout(() => overlay.remove(), 500);
     
     // Set an initial default background
-    generatePollinationsBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
+    generateTogetherBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
@@ -205,7 +212,7 @@ let isGeneratingBg = false;
       clearTimeout(networkDebounce);
       
       networkDebounce = setTimeout(() => {
-        console.log("⚡ Messages endpoint caught. Scraping finalized chat...");
+        console.log("⚡ Bot message saved. Scraping finalized chat...");
         let currentText = getLatestChatContext();
         if (currentText) {
           const apiKey = localStorage.getItem("ambient_api_key");
@@ -306,7 +313,6 @@ async function askAI(chatText, availableAudio, apiKey) {
     console.log("🤖 Raw AI Response:", aiMessage);
     
     try {
-      // THE FIX: Strip out Markdown code blocks before parsing
       let cleanJson = aiMessage.replace(/```json/g, "").replace(/```/g, "").trim();
       const decision = JSON.parse(cleanJson);
       
@@ -336,7 +342,7 @@ function applyAmbience(decision) {
   // 1. Background Generation
   if (decision.background && decision.background.toLowerCase() !== "none" && decision.background !== currentBackgroundPrompt) {
     currentBackgroundPrompt = decision.background;
-    generatePollinationsBackground(currentBackgroundPrompt);
+    generateTogetherBackground(currentBackgroundPrompt);
   }
 
   // 2. Audio Crossfade
@@ -352,53 +358,78 @@ function applyAmbience(decision) {
   }
 }
 
-// --- POLLINATIONS AI IMAGE GENERATOR ---
-function generatePollinationsBackground(prompt) {
+// --- TOGETHER AI (FLUX.1) IMAGE GENERATOR ---
+async function generateTogetherBackground(prompt) {
   if (isGeneratingBg) return; 
+  
+  const togetherApiKey = localStorage.getItem("ambient_together_api_key");
+  if (!togetherApiKey) {
+    console.warn("⚠️ Together AI API Key is missing. Skipping background generation.");
+    return;
+  }
+
   isGeneratingBg = true;
 
   const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
-  const fullPrompt = encodeURIComponent(prompt + styleModifiers);
-  const seed = Math.floor(Math.random() * 100000);
-  const imageUrl = `https://image.pollinations.ai/prompt/${fullPrompt}?width=1080&height=1920&nologo=true&seed=${seed}`;
+  const fullPrompt = prompt + styleModifiers;
 
-  console.log("🎨 Generating new background via Pollinations:", imageUrl);
+  console.log("🎨 Generating new background via Together AI (FLUX.1 schnell)...");
 
-  const img = new Image();
-  
-  // Add a 15-second timeout so it doesn't hang forever
-  const timeout = setTimeout(() => {
-    if (isGeneratingBg) {
-      isGeneratingBg = false;
-      console.warn("⚠️ Pollinations timed out. Keeping the previous background.");
+  try {
+    const response = await fetch("https://api.together.ai/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${togetherApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "black-forest-labs/FLUX.1-schnell-Free",
+        prompt: fullPrompt,
+        aspect_ratio: "9:16",
+        steps: 4,
+        n: 1,
+        response_format: "url" // Get a URL back to load
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error?.message || "Failed to generate image");
     }
-  }, 15000);
 
-  img.onload = () => {
-    clearTimeout(timeout);
-    isGeneratingBg = false;
+    const imageUrl = data.data[0].url;
     
-    const layer1 = document.getElementById("bg-layer-1");
-    const layer2 = document.getElementById("bg-layer-2");
-    const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
-    const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
+    // Preload the image to ensure it's fully downloaded before crossfading
+    const img = new Image();
+    img.onload = () => {
+      isGeneratingBg = false;
+      
+      const layer1 = document.getElementById("bg-layer-1");
+      const layer2 = document.getElementById("bg-layer-2");
+      const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
+      const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
 
-    inactiveLayer.style.backgroundImage = `url("${imageUrl}")`;
-    void inactiveLayer.offsetWidth; 
+      inactiveLayer.style.backgroundImage = `url("${imageUrl}")`;
+      void inactiveLayer.offsetWidth; 
 
-    activeLayer.classList.remove("active");
-    inactiveLayer.classList.add("active");
-    
-    console.log("✅ Background generated and applied.");
-  };
+      activeLayer.classList.remove("active");
+      inactiveLayer.classList.add("active");
+      
+      console.log("✅ Background generated and applied.");
+    };
 
-  img.onerror = () => {
-    clearTimeout(timeout);
+    img.onerror = () => {
+      isGeneratingBg = false;
+      console.error("❌ Failed to load generated image into browser.");
+    };
+
+    img.src = imageUrl;
+
+  } catch (error) {
     isGeneratingBg = false;
-    console.error("❌ Failed to generate background image from Pollinations. Network error or rate limit.");
-  };
-
-  img.src = imageUrl;
+    console.error("❌ Together AI generation error:", error);
+  }
 }
 
 // --- AUDIO CROSSFADER ---
