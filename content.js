@@ -1,8 +1,6 @@
 let refreshInterval = null; 
 let cachedImages = [];
 let cachedAudio = [];
-let currentBackground = "";
-let currentMusic = "";
 
 // Weather Engine Variables
 let canvas, ctx;
@@ -10,17 +8,9 @@ let animationId;
 let particles = [];
 let currentEffect = "none";
 let lightningInterval = null;
-
-// Audio Crossfading Variables
-let activeAudio = new Audio();
-let inactiveAudio = new Audio();
-activeAudio.loop = true; inactiveAudio.loop = true;
-activeAudio.volume = 0; inactiveAudio.volume = 0;
-document.body.appendChild(activeAudio); document.body.appendChild(inactiveAudio);
-
-// Background Layer Tracking
-let currentBgLayer = null;
-const colorCache = {};
+let currentBackground = "";
+let currentMusic = "";
+let lastDecision = null; // AI Memory
 
 // --- 0. FETCH ASSETS EARLY ---
 (async function loadAssetsEarly() {
@@ -66,14 +56,14 @@ const colorCache = {};
     
     <label>Refresh Frequency (Seconds)</label>
     <input type="number" id="set-frequency" value="10" min="5" />
+
+    <label>Background Blur (<span id="blur-val">10</span>px)</label>
+    <input type="range" id="set-blur" min="0" max="30" value="10" />
     
-    <label>Background Blur <span id="val-blur">0</span>px</label>
-    <input type="range" id="set-blur" min="0" max="20" value="0" />
+    <label>Background Dimness (<span id="dim-val">40</span>%)</label>
+    <input type="range" id="set-dim" min="0" max="90" value="40" />
     
-    <label>Background Dimness <span id="val-dim">0</span>%</label>
-    <input type="range" id="set-dim" min="0" max="100" value="0" />
-    
-    <label class="manual-toggle-wrapper" style="margin-top: 10px;">
+    <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:10px;">
       <input type="checkbox" id="set-manual-mode" /> 
       <span style="color:#fff; font-size:13px;">Enable Manual Mode</span>
     </label>
@@ -104,14 +94,15 @@ const colorCache = {};
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
-  // Setup Weather DOM
-  const bgContainer = document.createElement("div");
-  bgContainer.id = "ambient-bg-container";
-  document.body.appendChild(bgContainer);
-
-  const bgDim = document.createElement("div");
-  bgDim.id = "ambient-bg-dim";
-  document.body.appendChild(bgDim);
+  // --- 2. SETUP BACKGROUND & WEATHER DOM ---
+  const bgWrapper = document.createElement("div");
+  bgWrapper.id = "ambient-bg-wrapper";
+  bgWrapper.innerHTML = `
+    <div class="ambient-bg-img" id="bg-layer-1"></div>
+    <div class="ambient-bg-img" id="bg-layer-2"></div>
+    <div id="ambient-dim-overlay"></div>
+  `;
+  document.body.appendChild(bgWrapper);
 
   canvas = document.createElement("canvas");
   canvas.id = "ambient-weather-canvas";
@@ -133,38 +124,39 @@ const colorCache = {};
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  // Load settings
+  // --- 3. LOAD SETTINGS ---
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
   document.getElementById("set-frequency").value = localStorage.getItem("ambient_frequency") || "10";
   
-  const savedBlur = localStorage.getItem("ambient_blur") || "0";
-  const savedDim = localStorage.getItem("ambient_dim") || "0";
+  const savedBlur = localStorage.getItem("ambient_blur") || "10";
+  const savedDim = localStorage.getItem("ambient_dim") || "40";
   document.getElementById("set-blur").value = savedBlur;
   document.getElementById("set-dim").value = savedDim;
-  document.getElementById("val-blur").textContent = savedBlur;
-  document.getElementById("val-dim").textContent = savedDim;
-  document.documentElement.style.setProperty('--ambient-blur', `${savedBlur}px`);
-  document.documentElement.style.setProperty('--ambient-dim', savedDim / 100);
+  document.getElementById("blur-val").textContent = savedBlur;
+  document.getElementById("dim-val").textContent = savedDim;
   
+  applyVisualSettings(savedBlur, savedDim);
+
   const manualCheckbox = document.getElementById("set-manual-mode");
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
   document.getElementById("manual-controls").style.display = manualCheckbox.checked ? "flex" : "none";
 
-  // UI Events
+  // --- 4. EVENT LISTENERS ---
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
 
+  // Live preview for sliders
   document.getElementById("set-blur").addEventListener("input", (e) => {
-    document.documentElement.style.setProperty('--ambient-blur', `${e.target.value}px`);
-    document.getElementById("val-blur").textContent = e.target.value;
+    document.getElementById("blur-val").textContent = e.target.value;
+    applyVisualSettings(e.target.value, document.getElementById("set-dim").value);
   });
-
+  
   document.getElementById("set-dim").addEventListener("input", (e) => {
-    document.documentElement.style.setProperty('--ambient-dim', e.target.value / 100);
-    document.getElementById("val-dim").textContent = e.target.value;
+    document.getElementById("dim-val").textContent = e.target.value;
+    applyVisualSettings(document.getElementById("set-blur").value, e.target.value);
   });
 
   manualCheckbox.addEventListener("change", (e) => {
@@ -173,7 +165,7 @@ const colorCache = {};
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
     if (isManual) {
       if (refreshInterval) clearInterval(refreshInterval);
-      console.log("⏸️ Manual Mode Enabled. Loop stopped.");
+      console.log("⏸️ Manual Mode Enabled.");
     } else {
       startAmbientLoop();
     }
@@ -201,27 +193,35 @@ const colorCache = {};
     await askAI(actualChat, cachedImages, cachedAudio, apiKey);
   });
 
-  // Overlay
+  // --- 5. OVERLAY & AUDIO ---
   const overlay = document.createElement("div");
   overlay.id = "janitor-init-overlay";
   overlay.textContent = "[ initialize chat ]";
   document.body.appendChild(overlay);
 
+  const audio = new Audio();
+  audio.id = "ambient-audio-player";
+  audio.loop = true;
+  audio.volume = 0; // Start at 0 for fade-in
+  audio.style.display = "none";
+  document.body.appendChild(audio);
+
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-    
-    // Start initial audio safely
-    if (cachedAudio.length > 0) {
-      currentMusic = cachedAudio[0];
-      const url = chrome.runtime.getURL(currentMusic);
-      activeAudio.src = url; activeAudio.volume = 0.5; activeAudio.play().catch(()=>{});
-      inactiveAudio.src = url; inactiveAudio.volume = 0; inactiveAudio.play().catch(()=>{});
-    }
     startAmbientLoop();
   });
 })();
 
+// --- HELPER: Live Visual Settings ---
+function applyVisualSettings(blur, dim) {
+  const bgWrapper = document.getElementById("ambient-bg-wrapper");
+  const dimOverlay = document.getElementById("ambient-dim-overlay");
+  if (bgWrapper) bgWrapper.style.filter = `blur(${blur}px)`;
+  if (dimOverlay) dimOverlay.style.opacity = dim / 100;
+}
+
+// --- HELPER: Populate Dropdowns ---
 function populateManualDropdowns() {
   const bgSelect = document.getElementById("manual-bg");
   const audioSelect = document.getElementById("manual-audio");
@@ -237,18 +237,22 @@ function resizeCanvas() {
   }
 }
 
+// --- THE POLLING LOOP ---
 function startAmbientLoop() {
   if (refreshInterval) clearInterval(refreshInterval);
   if (localStorage.getItem("ambient_manual_mode") === "true") return;
 
   const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
   refreshInterval = setInterval(() => {
-    let currentText = getLatestChatContext() || "No new text detected. Maintain the current atmosphere.";
+    let currentText = getLatestChatContext();
+    if (!currentText) currentText = "No new text detected. Maintain the current atmosphere.";
+    
     const apiKey = localStorage.getItem("ambient_api_key");
     if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
   }, freq * 1000);
 }
 
+// --- SCRAPER ---
 function getLatestChatContext() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return null;
@@ -269,26 +273,26 @@ function setIndicator(state) {
   if (ind) ind.className = state;
 }
 
+// --- AI FUNCTION ---
 async function askAI(chatText, availableImages, availableAudio, apiKey) {
   setIndicator("generating"); 
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
-  
-  // Memory injection: read previous state
-  const prevDecision = localStorage.getItem("ambient_last_decision") || "None";
+
+  // AI MEMORY: Append previous decision to keep it consistent
+  let memoryPrompt = "";
+  if (lastDecision) {
+    memoryPrompt = `\nIMPORTANT MEMORY: The previous ambience was ${JSON.stringify(lastDecision)}. Do not change the background or music unless the chat explicitly describes a major scene change (e.g., moving to a new location).`;
+  }
 
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
   Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning". Do not output any markdown.
   "reasoning" should be a short, immersive sentence explaining why you chose these elements.
-  
-  Previously chosen state: ${prevDecision}
-  If the chat context remains in the same location or situation, KEEP the previous state to avoid jarring changes.
-  
   Available backgrounds: ${JSON.stringify(availableImages)}
   Available music: ${JSON.stringify(availableAudio)}
-  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]`;
+  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]${memoryPrompt}`;
 
-  console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold; font-size: 14px;");
+  console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold;");
   console.log(chatText);
 
   try {
@@ -315,11 +319,12 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     try {
       const decision = JSON.parse(aiMessage);
-      if (decision.reasoning) console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
+      lastDecision = decision; // Save for next loop
       
-      // Save memory
-      localStorage.setItem("ambient_last_decision", aiMessage);
-      
+      if (decision.reasoning) {
+        console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
+      }
+
       applyAmbience(decision);
       setIndicator("idle"); 
     } catch (e) {
@@ -332,197 +337,193 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   }
 }
 
-// --- NEW: SEAMLESS BACKGROUND & COLOR EXTRACTION ---
-function changeBackground(newBgPath) {
-  const url = chrome.runtime.getURL(newBgPath);
-  const newLayer = document.createElement("div");
-  newLayer.className = "bg-layer";
-  newLayer.style.backgroundImage = `url("${url}")`;
-  
-  const container = document.getElementById("ambient-bg-container");
-  container.appendChild(newLayer);
-  
-  // Force reflow to trigger transition
-  void newLayer.offsetWidth;
-  newLayer.classList.add("active");
-  
-  if (currentBgLayer) {
-    const oldLayer = currentBgLayer;
-    oldLayer.classList.remove("active");
-    setTimeout(() => oldLayer.remove(), 1600); // Wait for 1.5s transition
-  }
-  currentBgLayer = newLayer;
-  
-  extractThemeColor(url);
-}
-
-function extractThemeColor(imageUrl) {
-  if (colorCache[imageUrl]) {
-    document.documentElement.style.setProperty('--ambient-accent', colorCache[imageUrl]);
-    return;
-  }
-  
-  const img = new Image();
-  img.crossOrigin = "Anonymous";
-  img.src = imageUrl;
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 50; canvas.height = 50;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0, 50, 50);
-    const data = ctx.getImageData(0, 0, 50, 50).data;
-    let r = 0, g = 0, b = 0, count = 0;
-    
-    for (let i = 0; i < data.length; i += 4) {
-      const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-      if (brightness > 30 && brightness < 220) {
-        r += data[i]; g += data[i+1]; b += data[i+2]; count++;
-      }
-    }
-    
-    if (count === 0) return;
-    r = Math.min(255, Math.floor((r / count) * 1.2)); // Boost saturation
-    g = Math.min(255, Math.floor((g / count) * 1.2));
-    b = Math.min(255, Math.floor((b / count) * 1.2));
-    
-    const colorString = `rgb(${r}, ${g}, ${b})`;
-    colorCache[imageUrl] = colorString;
-    document.documentElement.style.setProperty('--ambient-accent', colorString);
-  };
-}
-
-// --- NEW: AUDIO CROSSFADE ---
-function crossfadeAudio(newMusicPath) {
-  if (newMusicPath === currentMusic) return;
-  currentMusic = newMusicPath;
-  
-  const url = chrome.runtime.getURL(newMusicPath);
-  
-  inactiveAudio.src = url;
-  inactiveAudio.volume = 0;
-  inactiveAudio.play().catch(e => console.log("Audio play blocked:", e));
-  
-  let step = 0;
-  const fadeInterval = setInterval(() => {
-    step++;
-    const targetVol = 0.5;
-    const currentInactiveVol = (step / 50) * targetVol;
-    const currentActiveVol = targetVol - currentInactiveVol;
-    
-    activeAudio.volume = Math.max(0, currentActiveVol);
-    inactiveAudio.volume = Math.min(targetVol, currentInactiveVol);
-    
-    if (step >= 50) {
-      clearInterval(fadeInterval);
-      activeAudio.pause();
-      activeAudio.src = url;
-      activeAudio.currentTime = inactiveAudio.currentTime;
-      
-      const temp = activeAudio;
-      activeAudio = inactiveAudio;
-      inactiveAudio = temp;
-      activeAudio.volume = 0.5;
-    }
-  }, 50); // 50 steps * 50ms = 2.5 seconds crossfade
-}
-
+// --- AMBIENCE ENGINE (Crossfades & Colors) ---
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
+  // 1. Background Crossfade
   if (decision.background && decision.background !== currentBackground) {
+    const oldBg = currentBackground;
     currentBackground = decision.background;
-    changeBackground(currentBackground);
+    const url = chrome.runtime.getURL(currentBackground);
+
+    const layer1 = document.getElementById("bg-layer-1");
+    const layer2 = document.getElementById("bg-layer-2");
+
+    // Determine which layer is currently active
+    const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
+    const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
+
+    // Set new image on inactive layer
+    inactiveLayer.style.backgroundImage = `url("${url}")`;
+    
+    // Trigger reflow to ensure transition works
+    void inactiveLayer.offsetWidth;
+
+    // Crossfade
+    activeLayer.classList.remove("active");
+    inactiveLayer.classList.add("active");
+
+    // Extract color and recolor UI
+    if (oldBg !== currentBackground) {
+      extractDominantColor(url);
+    }
   }
 
+  // 2. Audio Crossfade
   if (decision.music && decision.music !== currentMusic) {
-    crossfadeAudio(decision.music);
+    currentMusic = decision.music;
+    const newAudioUrl = chrome.runtime.getURL(currentMusic);
+    crossfadeAudio(newAudioUrl);
   }
 
+  // 3. Weather Effects (Smooth)
   if (decision.effect && decision.effect !== currentEffect) {
     setWeather(decision.effect);
   }
 }
 
-// --- NEW: WEATHER TRANSITIONS ---
+// --- COLOR EXTRACTOR ---
+async function extractDominantColor(imageUrl) {
+  try {
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+    
+    const canvas = document.createElement("canvas");
+    canvas.width = 1; canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, 1, 1);
+    
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    
+    // Darken slightly to ensure text contrast if needed, or just use directly
+    const color = `rgb(${r}, ${g}, ${b})`;
+    const colorDim = `rgba(${r}, ${g}, ${b}, 0.3)`;
+    const colorBright = `rgb(${Math.min(255, r+40)}, ${Math.min(255, g+40)}, ${Math.min(255, b+40)})`;
+
+    // Override Janitor's Purple/Pink CSS variables
+    const root = document.documentElement;
+    root.style.setProperty('--colour-purple-500', color);
+    root.style.setProperty('--colour-purple-400', colorBright);
+    root.style.setProperty('--colour-purple-600', color);
+    root.style.setProperty('--colour-pink-500', colorBright);
+    root.style.setProperty('--bg-purple', color);
+    root.style.setProperty('--accent-primary', color);
+    root.style.setProperty('--button-primary', colorBright);
+    root.style.setProperty('--border-active', colorBright);
+
+    console.log(`🎨 Recolored UI to match background: ${color}`);
+  } catch (e) {
+    console.warn("Could not extract color (CORS issue?), skipping recolor.", e);
+  }
+}
+
+// --- AUDIO CROSSFADER ---
+function crossfadeAudio(newUrl) {
+  const audio = document.getElementById("ambient-audio-player");
+  if (!audio) return;
+
+  let vol = audio.volume;
+  const fadeOutInterval = setInterval(() => {
+    vol -= 0.05;
+    if (vol <= 0) {
+      clearInterval(fadeOutInterval);
+      audio.volume = 0;
+      audio.src = newUrl;
+      audio.play().catch(e => console.log("Play blocked:", e));
+      
+      // Fade back in to 0.5
+      let inVol = 0;
+      const fadeInInterval = setInterval(() => {
+        inVol += 0.05;
+        if (inVol >= 0.5) {
+          clearInterval(fadeInInterval);
+          audio.volume = 0.5;
+        } else {
+          audio.volume = inVol;
+        }
+      }, 50);
+    } else {
+      audio.volume = vol;
+    }
+  }, 50);
+}
+
+// --- WEATHER ENGINE (Fade Transitions) ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
-  const cvs = document.getElementById("ambient-weather-canvas");
-  const fog = document.getElementById("ambient-fog-overlay");
-  const fire = document.getElementById("ambient-fiery-overlay");
-  const light = document.getElementById("ambient-lightning-overlay");
-
-  // Fade everything out
-  cvs.style.opacity = 0;
-  fog.style.opacity = 0;
-  fire.style.opacity = 0;
-  light.style.opacity = 0;
-
-  // Wait for fade out (800ms), then swap and fade in
+  // Fade out old particles
+  canvas.style.opacity = 0;
   setTimeout(() => {
-      cancelAnimationFrame(animationId);
-      particles = [];
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      fog.style.display = "none";
-      fire.style.display = "none";
-      if (lightningInterval) clearInterval(lightningInterval);
+    cancelAnimationFrame(animationId);
+    particles = [];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    const fogOverlay = document.getElementById("ambient-fog-overlay");
+    const fieryOverlay = document.getElementById("ambient-fiery-overlay");
+    
+    fogOverlay.style.opacity = 0;
+    fieryOverlay.style.opacity = 0;
+    if (lightningInterval) clearInterval(lightningInterval);
 
-      if (effect === "none") {
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "fog") {
-          fog.style.display = "block";
-          setTimeout(() => { fog.style.opacity = 0.6; }, 50); 
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "fiery") {
-          fire.style.display = "block";
-          setTimeout(() => { fire.style.opacity = 1; }, 50);
-          for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
-          animateWeather();
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "thunderstorm") {
-          for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
-          animateWeather();
-          lightningInterval = setInterval(() => {
-            if (Math.random() > 0.7) {
-              light.style.opacity = Math.random() * 0.5 + 0.3;
-              setTimeout(() => light.style.opacity = 0, 100);
-              setTimeout(() => {
-                  light.style.opacity = Math.random() * 0.4 + 0.2;
-                  setTimeout(() => light.style.opacity = 0, 150);
-              }, 200);
-            }
-          }, 4000);
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "rain") {
-          for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
-          animateWeather();
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "snow") {
-          for (let i = 0; i < 100; i++) particles.push(new Particle("snow"));
-          animateWeather();
-          cvs.style.opacity = 1;
-          return;
-      }
-      if (effect === "blizzard") {
-          for (let i = 0; i < 250; i++) particles.push(new Particle("blizzard"));
-          animateWeather();
-          cvs.style.opacity = 1;
-          return;
-      }
-  }, 800); 
+    // Generate new particles
+    if (effect === "none") { canvas.style.opacity = 1; return; }
+
+    if (effect === "fog") {
+      fogOverlay.style.opacity = 1;
+      canvas.style.opacity = 1;
+      return;
+    }
+
+    if (effect === "fiery") {
+      fieryOverlay.style.opacity = 1;
+      for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
+      animateWeather();
+      canvas.style.opacity = 1;
+      return;
+    }
+
+    if (effect === "thunderstorm") {
+      for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+      animateWeather();
+      canvas.style.opacity = 1;
+      lightningInterval = setInterval(() => {
+        if (Math.random() > 0.7) {
+          const lightningOverlay = document.getElementById("ambient-lightning-overlay");
+          lightningOverlay.style.opacity = Math.random() * 0.5 + 0.3;
+          setTimeout(() => lightningOverlay.style.opacity = 0, 100);
+        }
+      }, 4000);
+      return;
+    }
+
+    if (effect === "rain") {
+      for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+      animateWeather();
+      canvas.style.opacity = 1;
+      return;
+    }
+
+    if (effect === "snow") {
+      for (let i = 0; i < 100; i++) particles.push(new Particle("snow"));
+      animateWeather();
+      canvas.style.opacity = 1;
+      return;
+    }
+
+    if (effect === "blizzard") {
+      for (let i = 0; i < 250; i++) particles.push(new Particle("blizzard"));
+      animateWeather();
+      canvas.style.opacity = 1;
+      return;
+    }
+  }, 1500); // Wait 1.5s for fade out before swapping
 }
 
+// --- PARTICLE CLASS & ANIMATION (Unchanged) ---
 class Particle {
   constructor(type) {
     this.type = type;
@@ -530,30 +531,18 @@ class Particle {
     this.y = Math.random() * canvas.height;
     
     if (type === "rain") {
-      this.vy = Math.random() * 8 + 10;
-      this.vx = -2;
-      this.length = Math.random() * 20 + 10;
+      this.vy = Math.random() * 8 + 10; this.vx = -2; this.length = Math.random() * 20 + 10;
     } else if (type === "snow") {
-      this.vy = Math.random() * 1.5 + 1;
-      this.vx = Math.random() * 1 - 0.5;
-      this.radius = Math.random() * 3 + 1;
+      this.vy = Math.random() * 1.5 + 1; this.vx = Math.random() * 1 - 0.5; this.radius = Math.random() * 3 + 1;
     } else if (type === "blizzard") {
-      this.vy = Math.random() * 4 + 3;
-      this.vx = Math.random() * 4 - 2;
-      this.radius = Math.random() * 3 + 1;
+      this.vy = Math.random() * 4 + 3; this.vx = Math.random() * 4 - 2; this.radius = Math.random() * 3 + 1;
     } else if (type === "ember") {
-      this.y = canvas.height + Math.random() * 100;
-      this.vy = -(Math.random() * 1.5 + 0.5);
-      this.vx = Math.random() * 1 - 0.5;
-      this.radius = Math.random() * 2 + 1;
-      this.opacity = Math.random();
+      this.y = canvas.height + Math.random() * 100; this.vy = -(Math.random() * 1.5 + 0.5); this.vx = Math.random() * 1 - 0.5; this.radius = Math.random() * 2 + 1; this.opacity = Math.random();
     }
   }
 
   update() {
-    this.x += this.vx;
-    this.y += this.vy;
-
+    this.x += this.vx; this.y += this.vy;
     if (this.type === "rain" && this.y > canvas.height) { this.y = -20; this.x = Math.random() * canvas.width; }
     if ((this.type === "snow" || this.type === "blizzard") && this.y > canvas.height) { this.y = -20; this.x = Math.random() * canvas.width; }
     if (this.type === "ember" && this.y < -20) { this.y = canvas.height + 20; this.x = Math.random() * canvas.width; }
@@ -561,31 +550,20 @@ class Particle {
 
   draw() {
     if (this.type === "rain") {
-      ctx.beginPath();
-      ctx.moveTo(this.x, this.y);
-      ctx.lineTo(this.x + this.vx, this.y + this.length);
-      ctx.strokeStyle = "rgba(150, 180, 255, 0.5)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x + this.vx, this.y + this.length);
+      ctx.strokeStyle = "rgba(150, 180, 255, 0.5)"; ctx.lineWidth = 1.5; ctx.stroke();
     } else if (this.type === "snow" || this.type === "blizzard") {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${this.type === "blizzard" ? 0.8 : 0.6})`;
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${this.type === "blizzard" ? 0.8 : 0.6})`; ctx.fill();
     } else if (this.type === "ember") {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, ${Math.floor(Math.random() * 100 + 50)}, 0, ${this.opacity})`;
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, ${Math.floor(Math.random() * 100 + 50)}, 0, ${this.opacity})`; ctx.fill();
     }
   }
 }
 
 function animateWeather() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  particles.forEach(p => {
-    p.update();
-    p.draw();
-  });
+  particles.forEach(p => { p.update(); p.draw(); });
   animationId = requestAnimationFrame(animateWeather);
 }
