@@ -6,55 +6,30 @@
     --colour-grey-600: transparent !important;
 }
 
-/* Top Bar */
 ._headerContainer_fcgn6_1 {
     background: rgba(10, 10, 12, 0.85) !important;
     backdrop-filter: blur(12px) !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 
-/* Chat Input Box */
 ._chatInputInner_or9hd_30 {
     background: rgba(10, 10, 12, 0.85) !important;
     backdrop-filter: blur(12px) !important;
     border: 1px solid rgba(255, 255, 255, 0.15) !important;
 }
 
-/* Character Description Popup */
-._accordionPanel_tjtly_23 {
+._accordionPanel_tjtly_23, ._menuList_yuabn_8, .react-select__menu {
     background: rgba(10, 10, 12, 0.95) !important;
     backdrop-filter: blur(12px) !important;
 }
 
-/* Dropdown Menus */
-._menuList_yuabn_8, .react-select__menu {
-    background: rgba(10, 10, 12, 0.95) !important;
-}
-
 /* --- 2. STRIP JANITOR AI BACKGROUNDS --- */
-html, body { 
-    background: transparent !important; 
-    background-color: transparent !important;
-}
+html, body { background: transparent !important; background-color: transparent !important; }
+#root { background: transparent !important; position: relative !important; z-index: 1 !important; }
 
-#root {
-    background: transparent !important;
-    position: relative !important;
-    z-index: 1 !important;
-}
-
-main, 
-._messagesMain_1reev_15,
-._scroller_1reev_25,
-[data-testid="virtuoso-scroller"],
-[class*="chatLayout"], 
-[class*="messagesWrapper"], 
-[class*="layout"], 
-[class*="container"], 
-[class*="wrapper"] { 
-    background: transparent !important; 
-    background-color: transparent !important;
-    box-shadow: none !important;
+main, ._messagesMain_1reev_15, ._scroller_1reev_25, [data-testid="virtuoso-scroller"],
+[class*="chatLayout"], [class*="messagesWrapper"], [class*="layout"], [class*="container"], [class*="wrapper"] { 
+    background: transparent !important; background-color: transparent !important; box-shadow: none !important;
 }
 
 ._chatLayoutBackground_aei6y_25 { display: none !important; }
@@ -62,11 +37,9 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 
 /* --- 3. OUR BACKGROUND ENGINE --- */
 #ambient-bg-wrapper {
-    position: fixed !important;
-    top: -5% !important; left: -5% !important;
+    position: fixed !important; top: -5% !important; left: -5% !important;
     width: 110vw !important; height: 110vh !important;
-    z-index: 0 !important;
-    pointer-events: none !important;
+    z-index: 0 !important; pointer-events: none !important;
     animation: sway 25s ease-in-out infinite alternate !important;
     filter: blur(var(--ambient-blur, 10px)) !important;
     overflow: hidden !important;
@@ -79,45 +52,34 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 
 .ambient-bg-img {
-    position: absolute !important;
-    top: 0 !important; left: 0 !important;
+    position: absolute !important; top: 0 !important; left: 0 !important;
     width: 100% !important; height: 100% !important;
-    background-size: cover !important;
-    background-position: center !important;
-    opacity: 0 !important;
-    transition: opacity 2s ease-in-out !important;
+    background-size: cover !important; background-position: center !important;
+    opacity: 0 !important; transition: opacity 2s ease-in-out !important;
 }
-
 .ambient-bg-img.active { opacity: 1 !important; }
 
 #ambient-dim-overlay {
-    position: absolute !important;
-    top: 0 !important; left: 0 !important;
+    position: absolute !important; top: 0 !important; left: 0 !important;
     width: 100% !important; height: 100% !important;
     background-color: black !important;
     opacity: var(--ambient-dim, 0.4) !important;
     z-index: 1 !important;
 }
 
-/* --- 4. WEATHER OVERLAYS (Smooth Fade) --- */
+/* --- 4. WEATHER OVERLAYS --- */
 #ambient-weather-canvas {
     position: fixed !important; inset: 0 !important;
-    pointer-events: none !important;
-    z-index: 99998 !important;
+    pointer-events: none !important; z-index: 99998 !important;
     transition: opacity 1.5s ease !important;
 }
 
 #ambient-fog-overlay {
-    position: fixed !important; inset: 0 !important;
-    pointer-events: none !important;
-    z-index: 99997 !important;
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
     background: linear-gradient(transparent, rgba(200, 200, 200, 0.4), transparent) !important;
-    background-size: 200% 200% !important;
-    animation: fogMove 20s ease-in-out infinite !important;
-    opacity: 0 !important;
-    transition: opacity 2s ease !important;
+    background-size: 200% 200% !important; animation: fogMove 20s ease-in-out infinite !important;
+    opacity: 0 !important; transition: opacity 2s ease !important;
 }
-
 @keyframes fogMove {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -125,41 +87,30 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 
 #ambient-lightning-overlay {
-    position: fixed !important; inset: 0 !important;
-    pointer-events: none !important;
-    z-index: 99999 !important;
-    background: white !important;
-    opacity: 0;
-    transition: opacity 0.1s !important;
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99999 !important;
+    background: white !important; opacity: 0; transition: opacity 0.1s !important;
 }
 
 #ambient-fiery-overlay {
     position: fixed !important; bottom: 0 !important; left: 0 !important;
-    width: 100vw !important; height: 40vh !important;
-    pointer-events: none !important;
-    z-index: 99996 !important;
+    width: 100vw !important; height: 40vh !important; pointer-events: none !important; z-index: 99996 !important;
     background: radial-gradient(ellipse at bottom, rgba(255, 50, 0, 0.5) 0%, transparent 70%) !important;
-    opacity: 0 !important;
-    transition: opacity 2s ease !important;
+    opacity: 0 !important; transition: opacity 2s ease !important;
 }
 
 /* --- 5. INITIALIZATION OVERLAY --- */
 #janitor-init-overlay {
-    position: fixed !important; inset: 0 !important;
-    background-color: black !important;
-    color: white !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-    z-index: 2147483647 !important;
-    font-family: monospace !important; font-size: 24px !important; letter-spacing: 2px !important;
-    cursor: pointer !important;
-    transition: opacity 0.5s ease-out !important;
+    position: fixed !important; inset: 0 !important; background-color: black !important;
+    color: white !important; display: flex !important; align-items: center !important; justify-content: center !important;
+    z-index: 2147483647 !important; font-family: monospace !important; font-size: 24px !important; 
+    letter-spacing: 2px !important; cursor: pointer !important; transition: opacity 0.5s ease-out !important;
 }
 #janitor-init-overlay.fade-out { opacity: 0 !important; pointer-events: none !important; }
 
-/* --- 6. UI PANEL --- */
+/* --- 6. UI PANEL (Vertical Stack) --- */
 #ambient-ui-wrapper {
     position: fixed !important; top: 70px !important; left: 4px !important;
-    display: flex !important; align-items: center !important; gap: 6px !important;
+    display: flex !important; flex-direction: column !important; align-items: center !important; gap: 10px !important;
     z-index: 2147483646 !important;
 }
 
@@ -172,23 +123,37 @@ iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { displ
 }
 #ambient-settings-btn:hover { background: rgba(40, 40, 45, 0.9) !important; }
 
-#ambient-indicator {
-    width: 12px !important; height: 12px !important; border-radius: 50% !important; transition: all 0.3s ease !important;
+/* Indicator Dots Container */
+#ambient-indicators {
+    display: flex !important; flex-direction: column !important; gap: 6px !important; align-items: center !important;
 }
-#ambient-indicator.idle { background: #52525b !important; box-shadow: 0 0 5px #52525b !important; }
-#ambient-indicator.waiting { background: #eab308 !important; box-shadow: 0 0 10px #eab308 !important; }
-#ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
-#ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
+
+.dot {
+    width: 10px !important; height: 10px !important; border-radius: 50% !important;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+/* Default Idle State */
+.dot.idle { background: #52525b !important; box-shadow: 0 0 4px #52525b !important; }
+
+/* Loading State (Yellow) */
+.dot.loading { background: #eab308 !important; box-shadow: 0 0 8px #eab308 !important; }
+
+/* Success States */
+#dot-orch.success { background: #22c55e !important; box-shadow: 0 0 10px #22c55e !important; }
+#dot-cf.success { background: #3b82f6 !important; box-shadow: 0 0 10px #3b82f6 !important; }
+#dot-poll.success { background: #a855f7 !important; box-shadow: 0 0 10px #a855f7 !important; }
+
+/* Error State (Red) */
+.dot.error { background: #ef4444 !important; box-shadow: 0 0 10px #ef4444 !important; }
 
 /* --- 7. SETTINGS MENU --- */
 #ambient-settings-menu {
-    position: fixed !important; top: 120px !important; left: 4px !important;
-    z-index: 2147483647 !important;
-    background: rgba(24, 24, 27, 0.95) !important; backdrop-filter: blur(12px) !important;
+    position: fixed !important; top: 140px !important; left: 4px !important;
+    z-index: 2147483647 !important; background: rgba(24, 24, 27, 0.95) !important; backdrop-filter: blur(12px) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important;
-    padding: 20px !important; color: #e4e4e7 !important;
-    display: none; flex-direction: column !important; gap: 12px !important;
-    width: 300px !important; font-family: -apple-system, sans-serif !important;
+    padding: 20px !important; color: #e4e4e7 !important; display: none; flex-direction: column !important; 
+    gap: 12px !important; width: 300px !important; font-family: -apple-system, sans-serif !important;
     box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
 
