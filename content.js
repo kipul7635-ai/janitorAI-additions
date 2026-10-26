@@ -1,6 +1,8 @@
 let refreshInterval = null; 
 let cachedImages = [];
 let cachedAudio = [];
+let currentBackground = "";
+let currentMusic = "";
 
 // Weather Engine Variables
 let canvas, ctx;
@@ -8,8 +10,17 @@ let animationId;
 let particles = [];
 let currentEffect = "none";
 let lightningInterval = null;
-let currentBackground = "";
-let currentMusic = "";
+
+// Audio Crossfading Variables
+let activeAudio = new Audio();
+let inactiveAudio = new Audio();
+activeAudio.loop = true; inactiveAudio.loop = true;
+activeAudio.volume = 0; inactiveAudio.volume = 0;
+document.body.appendChild(activeAudio); document.body.appendChild(inactiveAudio);
+
+// Background Layer Tracking
+let currentBgLayer = null;
+const colorCache = {};
 
 // --- 0. FETCH ASSETS EARLY ---
 (async function loadAssetsEarly() {
@@ -25,7 +36,7 @@ let currentMusic = "";
 })();
 
 (function () {
-  // --- 1. INJECT UI IMMEDIATELY ---
+  // --- 1. INJECT UI ---
   const uiWrapper = document.createElement("div");
   uiWrapper.id = "ambient-ui-wrapper";
 
@@ -56,7 +67,13 @@ let currentMusic = "";
     <label>Refresh Frequency (Seconds)</label>
     <input type="number" id="set-frequency" value="10" min="5" />
     
-    <label class="manual-toggle-wrapper">
+    <label>Background Blur <span id="val-blur">0</span>px</label>
+    <input type="range" id="set-blur" min="0" max="20" value="0" />
+    
+    <label>Background Dimness <span id="val-dim">0</span>%</label>
+    <input type="range" id="set-dim" min="0" max="100" value="0" />
+    
+    <label class="manual-toggle-wrapper" style="margin-top: 10px;">
       <input type="checkbox" id="set-manual-mode" /> 
       <span style="color:#fff; font-size:13px;">Enable Manual Mode</span>
     </label>
@@ -87,7 +104,15 @@ let currentMusic = "";
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
-  // Setup Weather DOM Elements
+  // Setup Weather DOM
+  const bgContainer = document.createElement("div");
+  bgContainer.id = "ambient-bg-container";
+  document.body.appendChild(bgContainer);
+
+  const bgDim = document.createElement("div");
+  bgDim.id = "ambient-bg-dim";
+  document.body.appendChild(bgDim);
+
   canvas = document.createElement("canvas");
   canvas.id = "ambient-weather-canvas";
   document.body.appendChild(canvas);
@@ -114,29 +139,46 @@ let currentMusic = "";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
   document.getElementById("set-frequency").value = localStorage.getItem("ambient_frequency") || "10";
   
+  const savedBlur = localStorage.getItem("ambient_blur") || "0";
+  const savedDim = localStorage.getItem("ambient_dim") || "0";
+  document.getElementById("set-blur").value = savedBlur;
+  document.getElementById("set-dim").value = savedDim;
+  document.getElementById("val-blur").textContent = savedBlur;
+  document.getElementById("val-dim").textContent = savedDim;
+  document.documentElement.style.setProperty('--ambient-blur', `${savedBlur}px`);
+  document.documentElement.style.setProperty('--ambient-dim', savedDim / 100);
+  
   const manualCheckbox = document.getElementById("set-manual-mode");
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
   document.getElementById("manual-controls").style.display = manualCheckbox.checked ? "flex" : "none";
 
-  // Menu toggles
+  // UI Events
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
 
-  // Manual Mode Checkbox logic
+  document.getElementById("set-blur").addEventListener("input", (e) => {
+    document.documentElement.style.setProperty('--ambient-blur', `${e.target.value}px`);
+    document.getElementById("val-blur").textContent = e.target.value;
+  });
+
+  document.getElementById("set-dim").addEventListener("input", (e) => {
+    document.documentElement.style.setProperty('--ambient-dim', e.target.value / 100);
+    document.getElementById("val-dim").textContent = e.target.value;
+  });
+
   manualCheckbox.addEventListener("change", (e) => {
     const isManual = e.target.checked;
     localStorage.setItem("ambient_manual_mode", isManual);
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
     if (isManual) {
-      if (refreshInterval) clearInterval(refreshInterval); // Stop the AI loop
+      if (refreshInterval) clearInterval(refreshInterval);
       console.log("⏸️ Manual Mode Enabled. Loop stopped.");
     } else {
-      startAmbientLoop(); // Restart AI loop
+      startAmbientLoop();
     }
   });
 
-  // Manual Dropdowns logic
   document.getElementById("manual-bg").addEventListener("change", (e) => applyAmbience({ background: e.target.value }));
   document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
   document.getElementById("manual-effect").addEventListener("change", (e) => applyAmbience({ effect: e.target.value }));
@@ -146,54 +188,48 @@ let currentMusic = "";
     localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
     localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
     localStorage.setItem("ambient_frequency", document.getElementById("set-frequency").value.trim());
+    localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
+    localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
     settingsMenu.style.display = "none";
     startAmbientLoop();
   });
 
-  // UPDATED: Test button now grabs actual chat context
   document.getElementById("test-ai-btn").addEventListener("click", async () => {
     const apiKey = localStorage.getItem("ambient_api_key");
     if (!apiKey) return alert("Please enter and save an API key first.");
-    
-    let actualChat = getLatestChatContext();
-    if (!actualChat) {
-      actualChat = "The group steps into a dark, gloomy forest. Rain begins to fall."; // Fallback
-      console.log("⚠️ Could not find chat context, using fallback text for test.");
-    }
+    let actualChat = getLatestChatContext() || "The group steps into a dark, gloomy forest. Rain begins to fall.";
     await askAI(actualChat, cachedImages, cachedAudio, apiKey);
   });
 
-  // --- 2. INJECT OVERLAY & AUDIO ---
+  // Overlay
   const overlay = document.createElement("div");
   overlay.id = "janitor-init-overlay";
   overlay.textContent = "[ initialize chat ]";
   document.body.appendChild(overlay);
 
-  const audio = new Audio();
-  audio.id = "ambient-audio-player";
-  audio.loop = true;
-  audio.volume = 0.5;
-  audio.style.display = "none";
-  document.body.appendChild(audio);
-
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
+    
+    // Start initial audio safely
+    if (cachedAudio.length > 0) {
+      currentMusic = cachedAudio[0];
+      const url = chrome.runtime.getURL(currentMusic);
+      activeAudio.src = url; activeAudio.volume = 0.5; activeAudio.play().catch(()=>{});
+      inactiveAudio.src = url; inactiveAudio.volume = 0; inactiveAudio.play().catch(()=>{});
+    }
     startAmbientLoop();
   });
 })();
 
-// --- HELPER: Populate Manual Dropdowns ---
 function populateManualDropdowns() {
   const bgSelect = document.getElementById("manual-bg");
   const audioSelect = document.getElementById("manual-audio");
   if (!bgSelect || !audioSelect) return;
-
   bgSelect.innerHTML = cachedImages.map(img => `<option value="${img}">${img}</option>`).join('');
   audioSelect.innerHTML = cachedAudio.map(aud => `<option value="${aud}">${aud}</option>`).join('');
 }
 
-// --- HELPER: Canvas Resizing ---
 function resizeCanvas() {
   if (canvas) {
     canvas.width = window.innerWidth;
@@ -201,73 +237,53 @@ function resizeCanvas() {
   }
 }
 
-// --- 4. THE POLLING LOOP ---
 function startAmbientLoop() {
   if (refreshInterval) clearInterval(refreshInterval);
-  
-  // Don't start loop if manual mode is on
-  if (localStorage.getItem("ambient_manual_mode") === "true") {
-    return; 
-  }
+  if (localStorage.getItem("ambient_manual_mode") === "true") return;
 
   const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
   refreshInterval = setInterval(() => {
-    let currentText = getLatestChatContext();
-    if (!currentText) currentText = "No new text detected. Maintain the current atmosphere.";
-    
+    let currentText = getLatestChatContext() || "No new text detected. Maintain the current atmosphere.";
     const apiKey = localStorage.getItem("ambient_api_key");
     if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
   }, freq * 1000);
 }
 
-// --- HELPER: SCRAPE LAST 3 MESSAGES (ROBUST VERSION) ---
 function getLatestChatContext() {
-  // Janitor uses <li> elements with class starting with "_messageDisplayWrapper" for each message.
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return null;
-
-  // Get the last 3 messages for context
   const recentMessages = Array.from(messages).slice(-3);
-
   let contextText = "";
   recentMessages.forEach(msg => {
-    // 1. Get the speaker name
     const nameEl = msg.querySelector('[class*="nameText"]');
     const name = nameEl ? nameEl.innerText.trim() : "Unknown";
-
-    // 2. Get the text block. Looking at your HTML, text is inside a div with class containing "messageBody"
-    // but we want to exclude the edit/delete buttons, so we target the inner text container.
-    let text = "";
     const textContainer = msg.querySelector('.css-7w4zgl') || msg.querySelector('[class*="messageBody"]');
-    
-    if (textContainer) {
-      text = textContainer.innerText.trim();
-    } else {
-      text = msg.innerText.trim(); // Fallback
-    }
-
+    const text = textContainer ? textContainer.innerText.trim() : msg.innerText.trim();
     contextText += `[${name}]: ${text}\n\n`;
   });
-
   return contextText.trim();
 }
 
-// --- HELPER: Update Indicator ---
 function setIndicator(state) {
   const ind = document.getElementById("ambient-indicator");
   if (ind) ind.className = state;
 }
 
-
-// --- 5. THE AI FUNCTION ---
 async function askAI(chatText, availableImages, availableAudio, apiKey) {
   setIndicator("generating"); 
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
+  
+  // Memory injection: read previous state
+  const prevDecision = localStorage.getItem("ambient_last_decision") || "None";
 
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
   Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning". Do not output any markdown.
   "reasoning" should be a short, immersive sentence explaining why you chose these elements.
+  
+  Previously chosen state: ${prevDecision}
+  If the chat context remains in the same location or situation, KEEP the previous state to avoid jarring changes.
+  
   Available backgrounds: ${JSON.stringify(availableImages)}
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]`;
@@ -299,11 +315,11 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     try {
       const decision = JSON.parse(aiMessage);
+      if (decision.reasoning) console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
       
-      if (decision.reasoning) {
-        console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
-      }
-
+      // Save memory
+      localStorage.setItem("ambient_last_decision", aiMessage);
+      
       applyAmbience(decision);
       setIndicator("idle"); 
     } catch (e) {
@@ -316,39 +332,110 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   }
 }
 
+// --- NEW: SEAMLESS BACKGROUND & COLOR EXTRACTION ---
+function changeBackground(newBgPath) {
+  const url = chrome.runtime.getURL(newBgPath);
+  const newLayer = document.createElement("div");
+  newLayer.className = "bg-layer";
+  newLayer.style.backgroundImage = `url("${url}")`;
+  
+  const container = document.getElementById("ambient-bg-container");
+  container.appendChild(newLayer);
+  
+  // Force reflow to trigger transition
+  void newLayer.offsetWidth;
+  newLayer.classList.add("active");
+  
+  if (currentBgLayer) {
+    const oldLayer = currentBgLayer;
+    oldLayer.classList.remove("active");
+    setTimeout(() => oldLayer.remove(), 1600); // Wait for 1.5s transition
+  }
+  currentBgLayer = newLayer;
+  
+  extractThemeColor(url);
+}
 
-// --- 6. APPLY AMBIENCE (Background, Music, Effects) ---
+function extractThemeColor(imageUrl) {
+  if (colorCache[imageUrl]) {
+    document.documentElement.style.setProperty('--ambient-accent', colorCache[imageUrl]);
+    return;
+  }
+  
+  const img = new Image();
+  img.crossOrigin = "Anonymous";
+  img.src = imageUrl;
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 50; canvas.height = 50;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, 50, 50);
+    const data = ctx.getImageData(0, 0, 50, 50).data;
+    let r = 0, g = 0, b = 0, count = 0;
+    
+    for (let i = 0; i < data.length; i += 4) {
+      const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+      if (brightness > 30 && brightness < 220) {
+        r += data[i]; g += data[i+1]; b += data[i+2]; count++;
+      }
+    }
+    
+    if (count === 0) return;
+    r = Math.min(255, Math.floor((r / count) * 1.2)); // Boost saturation
+    g = Math.min(255, Math.floor((g / count) * 1.2));
+    b = Math.min(255, Math.floor((b / count) * 1.2));
+    
+    const colorString = `rgb(${r}, ${g}, ${b})`;
+    colorCache[imageUrl] = colorString;
+    document.documentElement.style.setProperty('--ambient-accent', colorString);
+  };
+}
+
+// --- NEW: AUDIO CROSSFADE ---
+function crossfadeAudio(newMusicPath) {
+  if (newMusicPath === currentMusic) return;
+  currentMusic = newMusicPath;
+  
+  const url = chrome.runtime.getURL(newMusicPath);
+  
+  inactiveAudio.src = url;
+  inactiveAudio.volume = 0;
+  inactiveAudio.play().catch(e => console.log("Audio play blocked:", e));
+  
+  let step = 0;
+  const fadeInterval = setInterval(() => {
+    step++;
+    const targetVol = 0.5;
+    const currentInactiveVol = (step / 50) * targetVol;
+    const currentActiveVol = targetVol - currentInactiveVol;
+    
+    activeAudio.volume = Math.max(0, currentActiveVol);
+    inactiveAudio.volume = Math.min(targetVol, currentInactiveVol);
+    
+    if (step >= 50) {
+      clearInterval(fadeInterval);
+      activeAudio.pause();
+      activeAudio.src = url;
+      activeAudio.currentTime = inactiveAudio.currentTime;
+      
+      const temp = activeAudio;
+      activeAudio = inactiveAudio;
+      inactiveAudio = temp;
+      activeAudio.volume = 0.5;
+    }
+  }, 50); // 50 steps * 50ms = 2.5 seconds crossfade
+}
+
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
   if (decision.background && decision.background !== currentBackground) {
     currentBackground = decision.background;
-    const url = chrome.runtime.getURL(currentBackground);
-    let bgStyle = document.getElementById("ambient-bg-style");
-    if (!bgStyle) {
-      bgStyle = document.createElement("style");
-      bgStyle.id = "ambient-bg-style";
-      document.head.appendChild(bgStyle);
-    }
-    bgStyle.textContent = `
-      html, body {
-        background-image: url("${url}") !important;
-        background-size: cover !important;
-        background-position: center !important;
-        background-attachment: fixed !important;
-        background-color: transparent !important;
-      }
-      #root, #__next, main, [class*="layout"], [class*="Layout"], [class*="container"], [class*="wrapper"], [data-testid="virtuoso-scroller"] { background: transparent !important; }
-    `;
+    changeBackground(currentBackground);
   }
 
   if (decision.music && decision.music !== currentMusic) {
-    currentMusic = decision.music;
-    const audio = document.getElementById("ambient-audio-player");
-    if (audio) {
-      audio.src = chrome.runtime.getURL(currentMusic);
-      audio.play().catch(e => console.log("Audio play blocked:", e));
-    }
+    crossfadeAudio(decision.music);
   }
 
   if (decision.effect && decision.effect !== currentEffect) {
@@ -356,72 +443,84 @@ function applyAmbience(decision) {
   }
 }
 
-
-// --- 7. THE WEATHER ENGINE ---
+// --- NEW: WEATHER TRANSITIONS ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
-  cancelAnimationFrame(animationId);
-  particles = [];
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  const fogOverlay = document.getElementById("ambient-fog-overlay");
-  const fieryOverlay = document.getElementById("ambient-fiery-overlay");
-  const lightningOverlay = document.getElementById("ambient-lightning-overlay");
-  
-  fogOverlay.style.display = "none";
-  fieryOverlay.style.display = "none";
-  lightningOverlay.style.opacity = 0;
-  if (lightningInterval) clearInterval(lightningInterval);
+  const cvs = document.getElementById("ambient-weather-canvas");
+  const fog = document.getElementById("ambient-fog-overlay");
+  const fire = document.getElementById("ambient-fiery-overlay");
+  const light = document.getElementById("ambient-lightning-overlay");
 
-  if (effect === "none") return;
+  // Fade everything out
+  cvs.style.opacity = 0;
+  fog.style.opacity = 0;
+  fire.style.opacity = 0;
+  light.style.opacity = 0;
 
-  if (effect === "fog") {
-    fogOverlay.style.display = "block";
-    return;
-  }
+  // Wait for fade out (800ms), then swap and fade in
+  setTimeout(() => {
+      cancelAnimationFrame(animationId);
+      particles = [];
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      fog.style.display = "none";
+      fire.style.display = "none";
+      if (lightningInterval) clearInterval(lightningInterval);
 
-  if (effect === "fiery") {
-    fieryOverlay.style.display = "block";
-    for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
-    animateWeather();
-    return;
-  }
-
-  if (effect === "thunderstorm") {
-    for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
-    animateWeather();
-    lightningInterval = setInterval(() => {
-      if (Math.random() > 0.7) {
-        lightningOverlay.style.opacity = Math.random() * 0.5 + 0.3;
-        setTimeout(() => lightningOverlay.style.opacity = 0, 100);
-        setTimeout(() => {
-            lightningOverlay.style.opacity = Math.random() * 0.4 + 0.2;
-            setTimeout(() => lightningOverlay.style.opacity = 0, 150);
-        }, 200);
+      if (effect === "none") {
+          cvs.style.opacity = 1;
+          return;
       }
-    }, 4000);
-    return;
-  }
-
-  if (effect === "rain") {
-    for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
-    animateWeather();
-    return;
-  }
-
-  if (effect === "snow") {
-    for (let i = 0; i < 100; i++) particles.push(new Particle("snow"));
-    animateWeather();
-    return;
-  }
-
-  if (effect === "blizzard") {
-    for (let i = 0; i < 250; i++) particles.push(new Particle("blizzard"));
-    animateWeather();
-    return;
-  }
+      if (effect === "fog") {
+          fog.style.display = "block";
+          setTimeout(() => { fog.style.opacity = 0.6; }, 50); 
+          cvs.style.opacity = 1;
+          return;
+      }
+      if (effect === "fiery") {
+          fire.style.display = "block";
+          setTimeout(() => { fire.style.opacity = 1; }, 50);
+          for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
+          animateWeather();
+          cvs.style.opacity = 1;
+          return;
+      }
+      if (effect === "thunderstorm") {
+          for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+          animateWeather();
+          lightningInterval = setInterval(() => {
+            if (Math.random() > 0.7) {
+              light.style.opacity = Math.random() * 0.5 + 0.3;
+              setTimeout(() => light.style.opacity = 0, 100);
+              setTimeout(() => {
+                  light.style.opacity = Math.random() * 0.4 + 0.2;
+                  setTimeout(() => light.style.opacity = 0, 150);
+              }, 200);
+            }
+          }, 4000);
+          cvs.style.opacity = 1;
+          return;
+      }
+      if (effect === "rain") {
+          for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+          animateWeather();
+          cvs.style.opacity = 1;
+          return;
+      }
+      if (effect === "snow") {
+          for (let i = 0; i < 100; i++) particles.push(new Particle("snow"));
+          animateWeather();
+          cvs.style.opacity = 1;
+          return;
+      }
+      if (effect === "blizzard") {
+          for (let i = 0; i < 250; i++) particles.push(new Particle("blizzard"));
+          animateWeather();
+          cvs.style.opacity = 1;
+          return;
+      }
+  }, 800); 
 }
 
 class Particle {
