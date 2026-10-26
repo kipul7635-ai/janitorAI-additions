@@ -1,224 +1,144 @@
-/* --- SETTINGS MENU (Fixed Height & Scrollable) --- */
-#ambient-settings-menu {
+/* Hide SoundCloud embeds */
+iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
+
+/* --- BACKGROUND ENGINE --- */
+#ambient-bg-wrapper {
     position: fixed !important;
-    top: 120px !important;
-    left: 4px !important;
-    z-index: 2147483647 !important;
-    background: rgba(24, 24, 27, 0.95) !important;
-    backdrop-filter: blur(12px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 12px !important;
-    padding: 20px !important;
-    color: #e4e4e7 !important;
-    display: none;
-    flex-direction: column !important;
-    gap: 12px !important;
-    width: 300px !important;
-    max-height: calc(100vh - 140px) !important; /* Prevents it from extending off-screen */
-    overflow-y: auto !important;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
-}
-
-/* Custom Range Sliders */
-input[type=range] {
-    -webkit-appearance: none;
-    width: 100%;
-    background: transparent;
-    margin-top: 4px;
-}
-input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    height: 16px;
-    width: 16px;
-    border-radius: 50%;
-    background: #fff;
-    cursor: pointer;
-    margin-top: -6px;
-}
-input[type=range]::-webkit-slider-runnable-track {
-    width: 100%;
-    height: 4px;
-    cursor: pointer;
-    background: rgba(255,255,255,0.2);
-    border-radius: 2px;
-}
-
-/* --- BACKGROUND LAYERS (Sway & Blur) --- */
-#ambient-bg-container {
-    position: fixed !important;
-    inset: -5% -5% -5% -5% !important; /* Oversized to prevent edges showing during sway */
-    z-index: -2 !important;
-    pointer-events: none !important;
-    overflow: hidden !important;
-    filter: blur(var(--ambient-blur, 0px)) !important;
-    transition: filter 0.3s ease !important;
-}
-
-.bg-layer {
-    position: absolute !important;
-    inset: 0 !important;
-    background-size: cover !important;
-    background-position: center !important;
-    opacity: 0;
-    transition: opacity 1.5s ease-in-out !important;
-    animation: sway 25s infinite alternate ease-in-out !important;
-    will-change: transform;
-}
-
-.bg-layer.active {
-    opacity: 1;
-}
-
-#ambient-bg-dim {
-    position: fixed !important;
-    inset: 0 !important;
-    background: black !important;
+    top: -5% !important; left: -5% !important;
+    width: 110vw !important; height: 110vh !important;
     z-index: -1 !important;
     pointer-events: none !important;
-    opacity: var(--ambient-dim, 0) !important;
-    transition: opacity 0.3s ease !important;
+    animation: sway 25s ease-in-out infinite alternate !important;
+    transition: filter 0.5s ease !important;
+    overflow: hidden !important;
 }
 
 @keyframes sway {
-    0% { transform: scale(1.05) translate(0, 0); }
-    100% { transform: scale(1.08) translate(1.5%, 1%); }
+    0% { transform: scale(1) translate(0, 0); }
+    50% { transform: scale(1.02) translate(-15px, -10px); }
+    100% { transform: scale(1) translate(15px, 10px); }
 }
 
-/* --- WEATHER TRANSITIONS --- */
-#ambient-weather-canvas, #ambient-fog-overlay, #ambient-fiery-overlay, #ambient-lightning-overlay {
-    transition: opacity 0.8s ease-in-out !important;
+.ambient-bg-img {
+    position: absolute !important;
+    top: 0 !important; left: 0 !important;
+    width: 100% !important; height: 100% !important;
+    background-size: cover !important;
+    background-position: center !important;
+    opacity: 0 !important;
+    transition: opacity 2s ease-in-out !important;
 }
 
-/* --- JANITOR PURPLE OVERRIDES --- */
-/* This dynamically recolors Janitor's UI based on the extracted background color */
-:root {
-    --accent-primary: var(--ambient-accent, #9b7aed) !important;
-    --accent-primary-bright: var(--ambient-accent, #b194f5) !important;
-    --colour-purple-400: var(--ambient-accent, #9b7aed) !important;
-    --colour-purple-500: var(--ambient-accent, #9b7aed) !important;
-    --colour-purple-600: var(--ambient-accent, #9b7aed) !important;
-    --bg-purple: var(--ambient-accent, #9b7aed) !important;
-    --button-primary: var(--ambient-accent, #9b7aed) !important;
-    --border-purple-light: var(--ambient-accent, #9b7aed) !important;
-    --text-link: var(--ambient-accent, #9b7aed) !important;
+.ambient-bg-img.active {
+    opacity: 1 !important;
 }
 
-/* Keep the rest of the UI settings from previous steps */
+#ambient-dim-overlay {
+    position: absolute !important;
+    top: 0 !important; left: 0 !important;
+    width: 100% !important; height: 100% !important;
+    background-color: black !important;
+    opacity: 0.5 !important; /* Default dimness */
+    transition: opacity 0.5s ease !important;
+    z-index: 0 !important;
+}
+
+/* --- WEATHER OVERLAYS (Smooth Fade) --- */
+#ambient-weather-canvas {
+    position: fixed !important; inset: 0 !important;
+    pointer-events: none !important;
+    z-index: 99998 !important;
+    transition: opacity 1.5s ease !important;
+}
+
+#ambient-fog-overlay {
+    position: fixed !important; inset: 0 !important;
+    pointer-events: none !important;
+    z-index: 99997 !important;
+    background: linear-gradient(transparent, rgba(200, 200, 200, 0.4), transparent) !important;
+    background-size: 200% 200% !important;
+    animation: fogMove 20s ease-in-out infinite !important;
+    opacity: 0 !important;
+    transition: opacity 2s ease !important;
+}
+
+@keyframes fogMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+#ambient-lightning-overlay {
+    position: fixed !important; inset: 0 !important;
+    pointer-events: none !important;
+    z-index: 99999 !important;
+    background: white !important;
+    opacity: 0;
+    transition: opacity 0.1s !important;
+}
+
+#ambient-fiery-overlay {
+    position: fixed !important; bottom: 0 !important; left: 0 !important;
+    width: 100vw !important; height: 40vh !important;
+    pointer-events: none !important;
+    z-index: 99996 !important;
+    background: radial-gradient(ellipse at bottom, rgba(255, 50, 0, 0.5) 0%, transparent 70%) !important;
+    opacity: 0 !important;
+    transition: opacity 2s ease !important;
+}
+
+/* --- INITIALIZATION OVERLAY --- */
+#janitor-init-overlay {
+    position: fixed !important; inset: 0 !important;
+    background-color: black !important;
+    color: white !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    z-index: 2147483647 !important;
+    font-family: monospace !important; font-size: 24px !important; letter-spacing: 2px !important;
+    cursor: pointer !important;
+    transition: opacity 0.5s ease-out !important;
+}
+#janitor-init-overlay.fade-out { opacity: 0 !important; pointer-events: none !important; }
+
+/* --- UI PANEL --- */
 #ambient-ui-wrapper {
-    position: fixed !important;
-    top: 70px !important; 
-    left: 4px !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 6px !important;
+    position: fixed !important; top: 70px !important; left: 4px !important;
+    display: flex !important; align-items: center !important; gap: 6px !important;
     z-index: 2147483646 !important;
 }
+
 #ambient-settings-btn {
-    background: rgba(20, 20, 25, 0.7) !important;
-    backdrop-filter: blur(8px) !important;
-    color: #e4e4e7 !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 50% !important;
-    width: 36px !important;
-    height: 36px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    font-size: 18px !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
+    background: rgba(20, 20, 25, 0.7) !important; backdrop-filter: blur(8px) !important;
+    color: #e4e4e7 !important; border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 50% !important; width: 36px !important; height: 36px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    font-size: 18px !important; cursor: pointer !important; transition: all 0.2s ease !important;
 }
-#ambient-settings-btn:hover {
-    background: rgba(40, 40, 45, 0.9) !important;
-    transform: scale(1.05) !important;
-}
+#ambient-settings-btn:hover { background: rgba(40, 40, 45, 0.9) !important; }
+
 #ambient-indicator {
-    width: 12px !important;
-    height: 12px !important;
-    border-radius: 50% !important;
-    transition: all 0.3s ease !important;
+    width: 12px !important; height: 12px !important; border-radius: 50% !important; transition: all 0.3s ease !important;
 }
 #ambient-indicator.idle { background: #52525b !important; box-shadow: 0 0 5px #52525b !important; }
 #ambient-indicator.waiting { background: #eab308 !important; box-shadow: 0 0 10px #eab308 !important; }
 #ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
 #ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
 
-#ambient-settings-menu h2 {
-    margin: 0 0 5px 0 !important;
-    font-size: 16px !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.5px !important;
-    color: #fff !important;
-}
-#ambient-settings-menu label {
-    font-size: 11px !important;
-    font-weight: 600 !important;
-    color: #a1a1aa !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1px !important;
-    margin-bottom: -4px !important;
-    display: flex;
-    justify-content: space-between;
-}
-#ambient-settings-menu input[type="text"],
-#ambient-settings-menu input[type="password"],
-#ambient-settings-menu input[type="number"],
-#ambient-settings-menu select {
-    background: rgba(0, 0, 0, 0.4) !important;
-    border: 1px solid rgba(255, 255, 255, 0.15) !important;
-    color: #fff !important;
-    padding: 10px 12px !important;
-    border-radius: 8px !important;
-    font-size: 13px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    transition: border 0.2s ease !important;
-}
-#ambient-settings-menu input:focus, #ambient-settings-menu select:focus {
-    outline: none !important;
-    border-color: #22c55e !important;
-}
-#ambient-settings-menu button {
-    background: #fff !important;
-    color: #000 !important;
-    border: none !important;
-    padding: 10px !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    font-size: 13px !important;
-    cursor: pointer !important;
-    transition: background 0.2s ease !important;
-}
-#ambient-settings-menu button:hover {
-    background: #d4d4d8 !important;
-}
-#test-ai-btn {
-    background: transparent !important;
-    color: #e4e4e7 !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-}
-#test-ai-btn:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
+/* --- SETTINGS MENU --- */
+#ambient-settings-menu {
+    position: fixed !important; top: 120px !important; left: 4px !important;
+    z-index: 2147483647 !important;
+    background: rgba(24, 24, 27, 0.95) !important; backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important;
+    padding: 20px !important; color: #e4e4e7 !important;
+    display: none; flex-direction: column !important; gap: 12px !important;
+    width: 300px !important; font-family: -apple-system, sans-serif !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
 }
 
-#janitor-init-overlay {
-    position: fixed !important;
-    inset: 0 !important;
-    background-color: black !important;
-    color: white !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    z-index: 2147483647 !important;
-    font-family: monospace !important;
-    font-size: 24px !important;
-    letter-spacing: 2px !important;
-    cursor: pointer !important;
-    opacity: 1;
-    transition: opacity 0.5s ease-out !important;
-}
-#janitor-init-overlay.fade-out {
-    opacity: 0 !important;
-    pointer-events: none !important;
-}
+#ambient-settings-menu h2 { margin: 0 0 5px 0 !important; font-size: 16px !important; color: #fff !important; }
+#ambient-settings-menu label { font-size: 11px !important; font-weight: 600 !important; color: #a1a1aa !important; text-transform: uppercase !important; margin-bottom: -8px !important; }
+#ambient-settings-menu input, #ambient-settings-menu select { background: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; color: #fff !important; padding: 8px 12px !important; border-radius: 8px !important; font-size: 13px !important; }
+#ambient-settings-menu input[type="range"] { padding: 0 !important; accent-color: #22c55e !important; }
+#ambient-settings-menu button { background: #fff !important; color: #000 !important; border: none !important; padding: 10px !important; border-radius: 8px !important; font-weight: 600 !important; cursor: pointer !important; }
+#test-ai-btn { background: transparent !important; color: #e4e4e7 !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; }
