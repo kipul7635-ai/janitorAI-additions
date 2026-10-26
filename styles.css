@@ -23,7 +23,7 @@
     backdrop-filter: blur(12px) !important;
 }
 
-/* --- 2. STRIP JANITOR AI BACKGROUNDS --- */
+/* --- 2. STRIP JANITOR AI BACKGROUNDS & ADD BLACK SCROLLBAR --- */
 html, body { background: transparent !important; background-color: transparent !important; }
 #root { background: transparent !important; position: relative !important; z-index: 1 !important; }
 
@@ -35,18 +35,30 @@ main, ._messagesMain_1reev_15, ._scroller_1reev_25, [data-testid="virtuoso-scrol
 ._chatLayoutBackground_aei6y_25 { display: none !important; }
 iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
 
+/* Black Scrollbar */
+::-webkit-scrollbar {
+    width: 8px !important;
+    height: 8px !important;
+}
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.8) !important;
+    border-radius: 4px !important;
+}
+::-webkit-scrollbar-thumb {
+    background: #333 !important;
+    border-radius: 4px !important;
+    border: 1px solid #111 !important;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #555 !important;
+}
+
 /* --- 3. ACCESSIBILITY: TEXT BACKDROP & SHADOW --- */
-/* Text Shadow for readability */
 p, span, em, strong, h1, h2, h3, h4, h5, h6 {
     text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.9), 0px 0px 6px rgba(0, 0, 0, 0.6) !important;
 }
 
-/* The text backdrop box for ALL messages */
-[class*="messageBody"], 
-.css-7w4zgl, 
-[class*="nameText"],
-[class*="messageNameContainer"],
-._accordionPanel_tjtly_23 {
+[class*="messageBody"], .css-7w4zgl, [class*="nameText"], [class*="messageNameContainer"], ._accordionPanel_tjtly_23 {
     background-color: rgba(0, 0, 0, var(--ambient-text-bg, 0.2)) !important;
     backdrop-filter: blur(6px) !important;
     padding: 8px 12px !important;
@@ -94,12 +106,18 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6 {
     transition: opacity 1.5s ease !important;
 }
 
+/* Beautiful layered volumetric fog */
 #ambient-fog-overlay {
     position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
-    background: linear-gradient(transparent, rgba(200, 200, 200, 0.4), transparent) !important;
-    background-size: 200% 200% !important; animation: fogMove 20s ease-in-out infinite !important;
+    background: 
+        radial-gradient(circle at 20% 50%, rgba(200, 200, 200, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 60%, rgba(200, 200, 200, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 50% 30%, rgba(200, 200, 200, 0.1) 0%, transparent 60%);
+    background-size: 200% 200% !important; 
+    animation: fogMove 30s linear infinite !important;
     opacity: 0 !important; transition: opacity 2s ease !important;
 }
+
 @keyframes fogMove {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
