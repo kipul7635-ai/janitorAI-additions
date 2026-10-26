@@ -64,11 +64,16 @@ let isGeneratingBg = false;
     <label>Cloudflare API Token</label>
     <input type="password" id="set-cf-token" placeholder="Your API Token" />
 
+    <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
+
     <label>Background Blur (<span id="blur-val">10</span>px)</label>
     <input type="range" id="set-blur" min="0" max="30" value="10" />
     
     <label>Background Dimness (<span id="dim-val">40</span>%)</label>
     <input type="range" id="set-dim" min="0" max="90" value="40" />
+
+    <label>Text Backdrop Opacity (<span id="textbg-val">20</span>%)</label>
+    <input type="range" id="set-text-bg" min="0" max="90" value="20" />
     
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:10px;">
       <input type="checkbox" id="set-manual-mode" /> 
@@ -137,12 +142,17 @@ let isGeneratingBg = false;
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
+  const savedTextBg = localStorage.getItem("ambient_text_bg") || "20";
+  
   document.getElementById("set-blur").value = savedBlur;
   document.getElementById("set-dim").value = savedDim;
+  document.getElementById("set-text-bg").value = savedTextBg;
+  
   document.getElementById("blur-val").textContent = savedBlur;
   document.getElementById("dim-val").textContent = savedDim;
+  document.getElementById("textbg-val").textContent = savedTextBg;
   
-  applyVisualSettings(savedBlur, savedDim);
+  applyVisualSettings(savedBlur, savedDim, savedTextBg);
 
   const manualCheckbox = document.getElementById("set-manual-mode");
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
@@ -155,12 +165,17 @@ let isGeneratingBg = false;
 
   document.getElementById("set-blur").addEventListener("input", (e) => {
     document.getElementById("blur-val").textContent = e.target.value;
-    applyVisualSettings(e.target.value, document.getElementById("set-dim").value);
+    applyVisualSettings(e.target.value, document.getElementById("set-dim").value, document.getElementById("set-text-bg").value);
   });
   
   document.getElementById("set-dim").addEventListener("input", (e) => {
     document.getElementById("dim-val").textContent = e.target.value;
-    applyVisualSettings(document.getElementById("set-blur").value, e.target.value);
+    applyVisualSettings(document.getElementById("set-blur").value, e.target.value, document.getElementById("set-text-bg").value);
+  });
+
+  document.getElementById("set-text-bg").addEventListener("input", (e) => {
+    document.getElementById("textbg-val").textContent = e.target.value;
+    applyVisualSettings(document.getElementById("set-blur").value, document.getElementById("set-dim").value, e.target.value);
   });
 
   manualCheckbox.addEventListener("change", (e) => {
@@ -180,6 +195,7 @@ let isGeneratingBg = false;
     localStorage.setItem("ambient_cf_token", document.getElementById("set-cf-token").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
+    localStorage.setItem("ambient_text_bg", document.getElementById("set-text-bg").value);
     settingsMenu.style.display = "none";
   });
 
@@ -235,24 +251,19 @@ let isGeneratingBg = false;
 function setDotState(dotId, state) {
   const dot = document.getElementById(dotId);
   if (!dot) return;
-
-  // Reset classes
   dot.className = "dot " + state;
-
-  // If it's a flash state (success/error), revert to idle after 2 seconds
   if (state === "success" || state === "error") {
     setTimeout(() => {
-      if (dot.classList.contains(state)) {
-        dot.className = "dot idle";
-      }
+      if (dot.classList.contains(state)) dot.className = "dot idle";
     }, 2000);
   }
 }
 
 // --- HELPER: Live Visual Settings ---
-function applyVisualSettings(blur, dim) {
+function applyVisualSettings(blur, dim, textBg) {
   document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
+  document.documentElement.style.setProperty('--ambient-text-bg', textBg / 100);
 }
 
 function populateManualDropdowns() {
@@ -347,7 +358,6 @@ async function askAI(chatText, availableAudio, apiKey) {
       setDotState("dot-orch", "success"); 
     } catch (e) {
       console.error("Failed to parse JSON:", e);
-      console.error("The string that failed was:", aiMessage);
       setDotState("dot-orch", "error");
     }
   } catch (e) {
@@ -360,20 +370,17 @@ async function askAI(chatText, availableAudio, apiKey) {
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
-  // 1. Background Generation
   if (decision.background && decision.background.toLowerCase() !== "none" && decision.background !== currentBackgroundPrompt) {
     currentBackgroundPrompt = decision.background;
     generateCloudflareBackground(currentBackgroundPrompt);
   }
 
-  // 2. Audio Crossfade
   if (decision.music && decision.music !== currentMusic) {
     currentMusic = decision.music;
     const newAudioUrl = chrome.runtime.getURL(currentMusic);
     crossfadeAudio(newAudioUrl);
   }
 
-  // 3. Weather Effects
   if (decision.effect && decision.effect !== currentEffect) {
     setWeather(decision.effect);
   }
@@ -402,15 +409,11 @@ async function generateCloudflareBackground(prompt) {
       apiToken: cfToken
     });
 
-    if (!response.success) {
-      throw new Error(response.error);
-    }
+    if (!response.success) throw new Error(response.error);
 
-    // Handle specific provider status flashes
     if (response.provider === 'cloudflare') {
       setDotState("dot-cf", "success");
     } else if (response.provider === 'pollinations') {
-      // If we fell back to Pollinations, Cloudflare failed.
       setDotState("dot-cf", "error");
       setDotState("dot-poll", "loading");
     }
@@ -420,10 +423,7 @@ async function generateCloudflareBackground(prompt) {
     const img = new Image();
     img.onload = () => {
       isGeneratingBg = false;
-      
-      if (response.provider === 'pollinations') {
-        setDotState("dot-poll", "success");
-      }
+      if (response.provider === 'pollinations') setDotState("dot-poll", "success");
       
       const layer1 = document.getElementById("bg-layer-1");
       const layer2 = document.getElementById("bg-layer-2");
@@ -435,8 +435,6 @@ async function generateCloudflareBackground(prompt) {
 
       activeLayer.classList.remove("active");
       inactiveLayer.classList.add("active");
-      
-      console.log("✅ Background generated and applied.");
     };
 
     img.onerror = () => {
