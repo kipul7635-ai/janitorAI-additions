@@ -191,7 +191,7 @@ let isGeneratingBg = false;
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
     
-    // Set an initial default background since we removed the manual ones
+    // Set an initial default background
     generatePollinationsBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
   });
 
@@ -306,7 +306,10 @@ async function askAI(chatText, availableAudio, apiKey) {
     console.log("🤖 Raw AI Response:", aiMessage);
     
     try {
-      const decision = JSON.parse(aiMessage);
+      // THE FIX: Strip out Markdown code blocks before parsing
+      let cleanJson = aiMessage.replace(/```json/g, "").replace(/```/g, "").trim();
+      const decision = JSON.parse(cleanJson);
+      
       lastDecision = decision; 
       
       if (decision.reasoning) {
@@ -317,6 +320,7 @@ async function askAI(chatText, availableAudio, apiKey) {
       setIndicator("idle"); 
     } catch (e) {
       console.error("Failed to parse JSON:", e);
+      console.error("The string that failed was:", aiMessage);
       setIndicator("error"); setTimeout(() => setIndicator("idle"), 3000);
     }
   } catch (e) {
@@ -329,7 +333,7 @@ async function askAI(chatText, availableAudio, apiKey) {
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
-  // 1. Background Generation (Only if it's not "none" and actually changed)
+  // 1. Background Generation
   if (decision.background && decision.background.toLowerCase() !== "none" && decision.background !== currentBackgroundPrompt) {
     currentBackgroundPrompt = decision.background;
     generatePollinationsBackground(currentBackgroundPrompt);
@@ -350,23 +354,30 @@ function applyAmbience(decision) {
 
 // --- POLLINATIONS AI IMAGE GENERATOR ---
 function generatePollinationsBackground(prompt) {
-  if (isGeneratingBg) return; // Prevent spamming the API if a request is already in flight
+  if (isGeneratingBg) return; 
   isGeneratingBg = true;
 
-  // Append strict style modifiers to force the visual novel look and prevent characters
   const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
   const fullPrompt = encodeURIComponent(prompt + styleModifiers);
-  
-  // Generate a random seed so we don't get cached identical images for the same prompt
   const seed = Math.floor(Math.random() * 100000);
   const imageUrl = `https://image.pollinations.ai/prompt/${fullPrompt}?width=1080&height=1920&nologo=true&seed=${seed}`;
 
   console.log("🎨 Generating new background via Pollinations:", imageUrl);
 
-  // Preload the image so we don't flash a blank screen
   const img = new Image();
+  
+  // Add a 15-second timeout so it doesn't hang forever
+  const timeout = setTimeout(() => {
+    if (isGeneratingBg) {
+      isGeneratingBg = false;
+      console.warn("⚠️ Pollinations timed out. Keeping the previous background.");
+    }
+  }, 15000);
+
   img.onload = () => {
+    clearTimeout(timeout);
     isGeneratingBg = false;
+    
     const layer1 = document.getElementById("bg-layer-1");
     const layer2 = document.getElementById("bg-layer-2");
     const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
@@ -382,8 +393,9 @@ function generatePollinationsBackground(prompt) {
   };
 
   img.onerror = () => {
+    clearTimeout(timeout);
     isGeneratingBg = false;
-    console.error("❌ Failed to generate background image from Pollinations.");
+    console.error("❌ Failed to generate background image from Pollinations. Network error or rate limit.");
   };
 
   img.src = imageUrl;
