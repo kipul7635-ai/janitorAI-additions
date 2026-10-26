@@ -11,6 +11,19 @@ let lightningInterval = null;
 let currentBackground = "";
 let currentMusic = "";
 
+// --- 0. FETCH ASSETS EARLY ---
+(async function loadAssetsEarly() {
+  try {
+    const res = await fetch(chrome.runtime.getURL("assets.json"));
+    const data = await res.json();
+    cachedImages = data.images || [];
+    cachedAudio = data.audio || [];
+    populateManualDropdowns();
+  } catch (e) {
+    console.error("Failed to load assets.json early:", e);
+  }
+})();
+
 (function () {
   // --- 1. INJECT UI IMMEDIATELY ---
   const uiWrapper = document.createElement("div");
@@ -33,13 +46,41 @@ let currentMusic = "";
     <h2>Ambient Engine</h2>
     <label>API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
+    
     <label>Model</label>
     <input type="text" id="set-model" placeholder="nvidia/nemotron-3-ultra-550b-a55b:free" />
+    
     <label>Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
+    
     <label>Refresh Frequency (Seconds)</label>
     <input type="number" id="set-frequency" value="10" min="5" />
-    <button id="save-settings">Save</button>
+    
+    <label class="manual-toggle-wrapper">
+      <input type="checkbox" id="set-manual-mode" /> 
+      <span style="color:#fff; font-size:13px;">Enable Manual Mode</span>
+    </label>
+
+    <div id="manual-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 10px;">
+      <label>Background</label>
+      <select id="manual-bg"></select>
+      
+      <label>Audio</label>
+      <select id="manual-audio"></select>
+      
+      <label>Weather Effect</label>
+      <select id="manual-effect">
+        <option value="none">none</option>
+        <option value="rain">rain</option>
+        <option value="fog">fog</option>
+        <option value="thunderstorm">thunderstorm</option>
+        <option value="fiery">fiery</option>
+        <option value="snow">snow</option>
+        <option value="blizzard">blizzard</option>
+      </select>
+    </div>
+
+    <button id="save-settings" style="margin-top: 10px;">Save</button>
     <button id="test-ai-btn">Test Connection</button>
   `;
 
@@ -72,10 +113,33 @@ let currentMusic = "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
   document.getElementById("set-frequency").value = localStorage.getItem("ambient_frequency") || "10";
+  
+  const manualCheckbox = document.getElementById("set-manual-mode");
+  manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
+  document.getElementById("manual-controls").style.display = manualCheckbox.checked ? "flex" : "none";
 
+  // Menu toggles
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
+
+  // Manual Mode Checkbox logic
+  manualCheckbox.addEventListener("change", (e) => {
+    const isManual = e.target.checked;
+    localStorage.setItem("ambient_manual_mode", isManual);
+    document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
+    if (isManual) {
+      if (refreshInterval) clearInterval(refreshInterval); // Stop the AI loop
+      console.log("⏸️ Manual Mode Enabled. Loop stopped.");
+    } else {
+      startAmbientLoop(); // Restart AI loop
+    }
+  });
+
+  // Manual Dropdowns logic
+  document.getElementById("manual-bg").addEventListener("change", (e) => applyAmbience({ background: e.target.value }));
+  document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
+  document.getElementById("manual-effect").addEventListener("change", (e) => applyAmbience({ effect: e.target.value }));
 
   document.getElementById("save-settings").addEventListener("click", () => {
     localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
@@ -105,21 +169,22 @@ let currentMusic = "";
   audio.style.display = "none";
   document.body.appendChild(audio);
 
-  overlay.addEventListener("click", async function () {
+  overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-
-    try {
-      const res = await fetch(chrome.runtime.getURL("assets.json"));
-      const data = await res.json();
-      cachedImages = data.images || [];
-      cachedAudio = data.audio || [];
-      startAmbientLoop();
-    } catch (e) {
-      console.error("Error during initialization:", e);
-    }
+    startAmbientLoop();
   });
 })();
+
+// --- HELPER: Populate Manual Dropdowns ---
+function populateManualDropdowns() {
+  const bgSelect = document.getElementById("manual-bg");
+  const audioSelect = document.getElementById("manual-audio");
+  if (!bgSelect || !audioSelect) return;
+
+  bgSelect.innerHTML = cachedImages.map(img => `<option value="${img}">${img}</option>`).join('');
+  audioSelect.innerHTML = cachedAudio.map(aud => `<option value="${aud}">${aud}</option>`).join('');
+}
 
 // --- HELPER: Canvas Resizing ---
 function resizeCanvas() {
@@ -132,8 +197,13 @@ function resizeCanvas() {
 // --- 4. THE POLLING LOOP ---
 function startAmbientLoop() {
   if (refreshInterval) clearInterval(refreshInterval);
-  const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
+  
+  // Don't start loop if manual mode is on
+  if (localStorage.getItem("ambient_manual_mode") === "true") {
+    return; 
+  }
 
+  const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
   refreshInterval = setInterval(() => {
     let currentText = getLatestAIMessage();
     if (!currentText) currentText = "No new text detected. Maintain the current atmosphere.";
@@ -166,11 +236,17 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
+  // Updated Prompt to include reasoning
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
-  Output ONLY a valid JSON object with the exact keys "background", "music", and "effect". Do not output any markdown.
+  Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning". Do not output any markdown.
+  "reasoning" should be a short, immersive sentence explaining why you chose these elements.
   Available backgrounds: ${JSON.stringify(availableImages)}
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]`;
+
+  // Print the exact context sent to the AI
+  console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold; font-size: 14px;");
+  console.log(chatText);
 
   try {
     const response = await fetch(proxyUrl, {
@@ -192,10 +268,16 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     }
 
     const aiMessage = result.choices[0].message.content;
-    console.log("🤖 Orchestral AI responded:", aiMessage);
+    console.log("🤖 Raw AI Response:", aiMessage);
     
     try {
       const decision = JSON.parse(aiMessage);
+      
+      // Print AI Reasoning
+      if (decision.reasoning) {
+        console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
+      }
+
       applyAmbience(decision);
       setIndicator("idle"); 
     } catch (e) {
@@ -257,7 +339,6 @@ function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
-  // Reset everything
   cancelAnimationFrame(animationId);
   particles = [];
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -280,7 +361,6 @@ function setWeather(effect) {
 
   if (effect === "fiery") {
     fieryOverlay.style.display = "block";
-    // Create embers
     for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
     animateWeather();
     return;
@@ -289,7 +369,6 @@ function setWeather(effect) {
   if (effect === "thunderstorm") {
     for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
     animateWeather();
-    // Lightning logic
     lightningInterval = setInterval(() => {
       if (Math.random() > 0.7) {
         lightningOverlay.style.opacity = Math.random() * 0.5 + 0.3;
@@ -322,7 +401,6 @@ function setWeather(effect) {
   }
 }
 
-// Particle Class
 class Particle {
   constructor(type) {
     this.type = type;
@@ -339,10 +417,10 @@ class Particle {
       this.radius = Math.random() * 3 + 1;
     } else if (type === "blizzard") {
       this.vy = Math.random() * 4 + 3;
-      this.vx = Math.random() * 4 - 2; // Strong wind
+      this.vx = Math.random() * 4 - 2;
       this.radius = Math.random() * 3 + 1;
     } else if (type === "ember") {
-      this.y = canvas.height + Math.random() * 100; // Start at bottom
+      this.y = canvas.height + Math.random() * 100;
       this.vy = -(Math.random() * 1.5 + 0.5);
       this.vx = Math.random() * 1 - 0.5;
       this.radius = Math.random() * 2 + 1;
