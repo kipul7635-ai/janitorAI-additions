@@ -197,29 +197,30 @@ let lastDecision = null; // AI Memory
     setTimeout(() => overlay.remove(), 500);
   });
 
-// --- 6. LISTEN FOR NETWORK TRIGGERS (Debounced) ---
-let networkDebounce = null;
+  // --- 6. LISTEN FOR NETWORK TRIGGERS (Debounced) ---
+  let networkDebounce = null;
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === "chat_updated") {
-    // Ignore if manual mode is enabled
-    if (localStorage.getItem("ambient_manual_mode") === "true") return;
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "chat_updated") {
+      // Ignore if manual mode is enabled
+      if (localStorage.getItem("ambient_manual_mode") === "true") return;
 
-    // Clear any existing timer
-    clearTimeout(networkDebounce);
-    
-    // Wait 1 second after the *last* track event before scraping
-    networkDebounce = setTimeout(() => {
-      console.log("⚡ Track event caught. Scraping finalized chat...");
+      // Clear any existing timer
+      clearTimeout(networkDebounce);
       
-      let currentText = getLatestChatContext();
-      if (currentText) {
-        const apiKey = localStorage.getItem("ambient_api_key");
-        if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
-      }
-    }, 1000); 
-  }
-});
+      // Wait 1 second after the *last* track event before scraping
+      networkDebounce = setTimeout(() => {
+        console.log("⚡ Track event caught. Scraping finalized chat...");
+        
+        let currentText = getLatestChatContext();
+        if (currentText) {
+          const apiKey = localStorage.getItem("ambient_api_key");
+          if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
+        }
+      }, 1000); 
+    }
+  });
+})();
 
 // --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
@@ -378,7 +379,6 @@ async function extractDominantColor(imageUrl) {
     const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
     
     const color = `rgb(${r}, ${g}, ${b})`;
-    const colorDim = `rgba(${r}, ${g}, ${b}, 0.3)`;
     const colorBright = `rgb(${Math.min(255, r+40)}, ${Math.min(255, g+40)}, ${Math.min(255, b+40)})`;
 
     const root = document.documentElement;
