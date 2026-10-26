@@ -54,8 +54,11 @@ let isGeneratingBg = false;
 
     <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
 
-    <label>Together AI API Key (for FLUX)</label>
-    <input type="password" id="set-together-api-key" placeholder="Enter Together AI Key" />
+    <label>Cloudflare Account ID</label>
+    <input type="text" id="set-cf-account" placeholder="Your Account ID" />
+    
+    <label>Cloudflare API Token</label>
+    <input type="password" id="set-cf-token" placeholder="Your API Token" />
 
     <label>Background Blur (<span id="blur-val">10</span>px)</label>
     <input type="range" id="set-blur" min="0" max="30" value="10" />
@@ -125,7 +128,8 @@ let isGeneratingBg = false;
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
-  document.getElementById("set-together-api-key").value = localStorage.getItem("ambient_together_api_key") || "";
+  document.getElementById("set-cf-account").value = localStorage.getItem("ambient_cf_account") || "";
+  document.getElementById("set-cf-token").value = localStorage.getItem("ambient_cf_token") || "";
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
@@ -168,7 +172,8 @@ let isGeneratingBg = false;
     localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
     localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
     localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
-    localStorage.setItem("ambient_together_api_key", document.getElementById("set-together-api-key").value.trim());
+    localStorage.setItem("ambient_cf_account", document.getElementById("set-cf-account").value.trim());
+    localStorage.setItem("ambient_cf_token", document.getElementById("set-cf-token").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
     settingsMenu.style.display = "none";
@@ -199,7 +204,7 @@ let isGeneratingBg = false;
     setTimeout(() => overlay.remove(), 500);
     
     // Set an initial default background
-    generateTogetherBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
+    generateCloudflareBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
@@ -342,7 +347,7 @@ function applyAmbience(decision) {
   // 1. Background Generation
   if (decision.background && decision.background.toLowerCase() !== "none" && decision.background !== currentBackgroundPrompt) {
     currentBackgroundPrompt = decision.background;
-    generateTogetherBackground(currentBackgroundPrompt);
+    generateCloudflareBackground(currentBackgroundPrompt);
   }
 
   // 2. Audio Crossfade
@@ -358,13 +363,15 @@ function applyAmbience(decision) {
   }
 }
 
-// --- TOGETHER AI (FLUX.1) IMAGE GENERATOR ---
-async function generateTogetherBackground(prompt) {
+// --- CLOUDFLARE WORKERS AI IMAGE GENERATOR ---
+async function generateCloudflareBackground(prompt) {
   if (isGeneratingBg) return; 
   
-  const togetherApiKey = localStorage.getItem("ambient_together_api_key");
-  if (!togetherApiKey) {
-    console.warn("⚠️ Together AI API Key is missing. Skipping background generation.");
+  const accountId = localStorage.getItem("ambient_cf_account");
+  const cfToken = localStorage.getItem("ambient_cf_token");
+  
+  if (!accountId || !cfToken) {
+    console.warn("⚠️ Cloudflare Account ID or API Token is missing. Skipping background generation.");
     return;
   }
 
@@ -372,35 +379,35 @@ async function generateTogetherBackground(prompt) {
 
   const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
   const fullPrompt = prompt + styleModifiers;
+  const model = "@cf/black-forest-labs/flux-1-schnell";
+  
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
 
-  console.log("🎨 Generating new background via Together AI (FLUX.1 schnell)...");
+  console.log("🎨 Generating new background via Cloudflare Workers AI...");
 
   try {
-    const response = await fetch("https://api.together.ai/v1/images/generations", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${togetherApiKey}`,
+        "Authorization": `Bearer ${cfToken}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "black-forest-labs/FLUX.1-schnell-Free",
-        prompt: fullPrompt,
-        aspect_ratio: "9:16",
-        steps: 4,
-        n: 1,
-        response_format: "url" // Get a URL back to load
+        prompt: fullPrompt
       })
     });
 
     const data = await response.json();
     
-    if (!response.ok) {
-      throw new Error(data.error?.message || "Failed to generate image");
+    if (!response.ok || !data.success) {
+      throw new Error(data.errors?.[0]?.message || "Failed to generate image via Cloudflare");
     }
 
-    const imageUrl = data.data[0].url;
+    // Cloudflare returns the image as base64 in JSON
+    const base64Image = data.result.image;
+    const imageUrl = `data:image/jpeg;base64,${base64Image}`;
     
-    // Preload the image to ensure it's fully downloaded before crossfading
+    // Preload the image to ensure it's fully processed
     const img = new Image();
     img.onload = () => {
       isGeneratingBg = false;
@@ -428,7 +435,7 @@ async function generateTogetherBackground(prompt) {
 
   } catch (error) {
     isGeneratingBg = false;
-    console.error("❌ Together AI generation error:", error);
+    console.error("❌ Cloudflare AI generation error:", error);
   }
 }
 
