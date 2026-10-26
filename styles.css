@@ -1,28 +1,45 @@
-/* Hide SoundCloud embeds */
-iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
-
-/* --- STRIP JANITOR AI BACKGROUNDS (So ours shows through) --- */
-html, body, #root, #__next, main, 
-[class*="layout"], [class*="Layout"], 
-[class*="background"], [class*="Background"], 
-[class*="container"], [class*="Container"], 
-[class*="wrapper"], [class*="Wrapper"],
-[data-testid="virtuoso-scroller"], [data-testid="virtuoso-item-list"] { 
+/* --- 1. STRIP JANITOR AI BACKGROUNDS (Aggressive) --- */
+html, body { 
     background: transparent !important; 
     background-color: transparent !important;
 }
 
-/* Hide Janitor's native blurred background image */
+#root {
+    background: transparent !important;
+    background-color: transparent !important;
+    position: relative !important;
+    z-index: 1 !important; /* Force the app above our background */
+}
+
+/* Force all main layout wrappers, main areas, and scrollers to be transparent */
+main, 
+._messagesMain_1reev_15,
+._scroller_1reev_25,
+[data-testid="virtuoso-scroller"],
+[class*="chatLayout"], 
+[class*="messagesWrapper"], 
+[class*="layout"], 
+[class*="container"], 
+[class*="wrapper"] { 
+    background: transparent !important; 
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Hide Janitor's native blurred background image element */
 ._chatLayoutBackground_aei6y_25 {
     display: none !important;
 }
 
-/* --- BACKGROUND ENGINE --- */
+/* Hide SoundCloud embeds */
+iframe[src*="soundcloud.com"], [class*="soundcloud"], [id*="soundcloud"] { display: none !important; }
+
+/* --- 2. OUR BACKGROUND ENGINE --- */
 #ambient-bg-wrapper {
     position: fixed !important;
     top: -5% !important; left: -5% !important;
     width: 110vw !important; height: 110vh !important;
-    z-index: -1 !important;
+    z-index: 0 !important; /* Sits behind #root */
     pointer-events: none !important;
     animation: sway 25s ease-in-out infinite alternate !important;
     transition: filter 0.5s ease !important;
@@ -56,10 +73,10 @@ html, body, #root, #__next, main,
     background-color: black !important;
     opacity: 0.4 !important;
     transition: opacity 0.5s ease !important;
-    z-index: 0 !important;
+    z-index: 1 !important;
 }
 
-/* --- WEATHER OVERLAYS (Smooth Fade) --- */
+/* --- 3. WEATHER OVERLAYS (Smooth Fade) --- */
 #ambient-weather-canvas {
     position: fixed !important; inset: 0 !important;
     pointer-events: none !important;
@@ -103,7 +120,7 @@ html, body, #root, #__next, main,
     transition: opacity 2s ease !important;
 }
 
-/* --- INITIALIZATION OVERLAY --- */
+/* --- 4. INITIALIZATION OVERLAY --- */
 #janitor-init-overlay {
     position: fixed !important; inset: 0 !important;
     background-color: black !important;
@@ -116,7 +133,7 @@ html, body, #root, #__next, main,
 }
 #janitor-init-overlay.fade-out { opacity: 0 !important; pointer-events: none !important; }
 
-/* --- UI PANEL --- */
+/* --- 5. UI PANEL --- */
 #ambient-ui-wrapper {
     position: fixed !important; top: 70px !important; left: 4px !important;
     display: flex !important; align-items: center !important; gap: 6px !important;
@@ -140,7 +157,7 @@ html, body, #root, #__next, main,
 #ambient-indicator.generating { background: #22c55e !important; box-shadow: 0 0 12px #22c55e !important; }
 #ambient-indicator.error { background: #ef4444 !important; box-shadow: 0 0 12px #ef4444 !important; }
 
-/* --- SETTINGS MENU --- */
+/* --- 6. SETTINGS MENU --- */
 #ambient-settings-menu {
     position: fixed !important; top: 120px !important; left: 4px !important;
     z-index: 2147483647 !important;
