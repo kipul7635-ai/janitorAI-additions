@@ -288,6 +288,7 @@ async function askAI(chatText, availableAudio, apiKey) {
   2. The style MUST be an anime visual novel background.
   3. NEVER include living beings. (NO humans, NO characters, NO animals).
   4. ONLY provide a new background prompt if the scene drastically changes location. If they stay in the same place, output "none" for the background to save API calls.
+  5. STRICTLY FORBIDDEN WORDS: Never use words related to anatomy, biology, violence, or gore. (e.g., instead of "veins", use "cracks" or "lines"; instead of "flesh", use "stone" or "wood"). The image generator has a strict safety filter.
 
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]${memoryPrompt}`;
@@ -379,7 +380,6 @@ async function generateCloudflareBackground(prompt) {
   console.log("🎨 Requesting new background via Cloudflare Workers AI...");
 
   try {
-    // Send message to background.js to handle the fetch and bypass CORS
     const response = await chrome.runtime.sendMessage({
       action: "generate_image",
       prompt: prompt,
@@ -393,7 +393,6 @@ async function generateCloudflareBackground(prompt) {
 
     const imageUrl = response.imageUrl;
     
-    // Preload the image to ensure it's fully processed
     const img = new Image();
     img.onload = () => {
       isGeneratingBg = false;
