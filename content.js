@@ -197,25 +197,29 @@ let lastDecision = null; // AI Memory
     setTimeout(() => overlay.remove(), 500);
   });
 
-  // --- 6. LISTEN FOR NETWORK TRIGGERS ---
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "chat_updated") {
-      // Ignore if manual mode is enabled
-      if (localStorage.getItem("ambient_manual_mode") === "true") return;
+// --- 6. LISTEN FOR NETWORK TRIGGERS (Debounced) ---
+let networkDebounce = null;
 
-      console.log("⚡ Network event caught: Generation finished. Waiting 500ms for DOM to render...");
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "chat_updated") {
+    // Ignore if manual mode is enabled
+    if (localStorage.getItem("ambient_manual_mode") === "true") return;
+
+    // Clear any existing timer
+    clearTimeout(networkDebounce);
+    
+    // Wait 1 second after the *last* track event before scraping
+    networkDebounce = setTimeout(() => {
+      console.log("⚡ Track event caught. Scraping finalized chat...");
       
-      // Short delay to ensure React finishes drawing the new text before we scrape it
-      setTimeout(() => {
-        let currentText = getLatestChatContext();
-        if (currentText) {
-          const apiKey = localStorage.getItem("ambient_api_key");
-          if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
-        }
-      }, 500); 
-    }
-  });
-})();
+      let currentText = getLatestChatContext();
+      if (currentText) {
+        const apiKey = localStorage.getItem("ambient_api_key");
+        if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
+      }
+    }, 1000); 
+  }
+});
 
 // --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
