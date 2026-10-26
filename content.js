@@ -205,7 +205,9 @@ function startAmbientLoop() {
 
   const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
   refreshInterval = setInterval(() => {
-    let currentText = getLatestAIMessage();
+    let currentText = getLatestChatContext();
+    
+    // Fallback if no text found
     if (!currentText) currentText = "No new text detected. Maintain the current atmosphere.";
     
     const apiKey = localStorage.getItem("ambient_api_key");
@@ -213,17 +215,32 @@ function startAmbientLoop() {
   }, freq * 1000);
 }
 
-function getLatestAIMessage() {
-  const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
-  if (!scroller) return null;
-  const textBlocks = scroller.querySelectorAll('div');
-  for (let i = textBlocks.length - 1; i >= 0; i--) {
-    const text = textBlocks[i].innerText.trim();
-    if (text.length > 30 && !text.includes("Press button to send chat") && !text.includes("Token")) return text;
-  }
-  return null;
+// --- HELPER: SCRAPE LAST 3 MESSAGES ---
+function getLatestChatContext() {
+  // Janitor uses <li> elements with class starting with "_messageDisplayWrapper" for each message.
+  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  if (messages.length === 0) return null;
+
+  // Get the last 3 messages for context
+  const recentMessages = Array.from(messages).slice(-3);
+
+  let contextText = "";
+  recentMessages.forEach(msg => {
+    // Try to find the sender name (e.g., "kir" or "Ai")
+    const nameEl = msg.querySelector('[class*="nameText"]');
+    const name = nameEl ? nameEl.innerText.trim() : "Unknown";
+
+    // Try to find the message body to avoid grabbing UI elements like the Edit/Delete buttons
+    const bodyEl = msg.querySelector('[class*="messageBody"]');
+    const text = bodyEl ? bodyEl.innerText.trim() : msg.innerText.trim();
+
+    contextText += `[${name}]: ${text}\n\n`;
+  });
+
+  return contextText.trim();
 }
 
+// --- HELPER: Update Indicator ---
 function setIndicator(state) {
   const ind = document.getElementById("ambient-indicator");
   if (ind) ind.className = state;
@@ -236,7 +253,6 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
-  // Updated Prompt to include reasoning
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
   Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning". Do not output any markdown.
   "reasoning" should be a short, immersive sentence explaining why you chose these elements.
@@ -244,7 +260,7 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]`;
 
-  // Print the exact context sent to the AI
+  // Print the exact context sent to the AI in a nice cyan box
   console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold; font-size: 14px;");
   console.log(chatText);
 
