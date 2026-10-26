@@ -2,7 +2,7 @@ let cachedAudio = [];
 
 // Weather Engine Variables
 let canvas, ctx;
-let animationId;
+let animationId = null;
 let particles = [];
 let currentEffect = "none";
 let lightningInterval = null;
@@ -10,6 +10,7 @@ let currentBackgroundPrompt = "";
 let currentMusic = "";
 let lastDecision = null; 
 let isGeneratingBg = false;
+let isAnimating = false; // Prevents scroll freezes
 
 // --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
@@ -71,9 +72,6 @@ let isGeneratingBg = false;
     
     <label>Background Dimness (<span id="dim-val">40</span>%)</label>
     <input type="range" id="set-dim" min="0" max="90" value="40" />
-
-    <label>Text Backdrop Opacity (<span id="textbg-val">20</span>%)</label>
-    <input type="range" id="set-text-bg" min="0" max="90" value="20" />
     
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:10px;">
       <input type="checkbox" id="set-manual-mode" /> 
@@ -142,17 +140,14 @@ let isGeneratingBg = false;
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
-  const savedTextBg = localStorage.getItem("ambient_text_bg") || "20";
   
   document.getElementById("set-blur").value = savedBlur;
   document.getElementById("set-dim").value = savedDim;
-  document.getElementById("set-text-bg").value = savedTextBg;
   
   document.getElementById("blur-val").textContent = savedBlur;
   document.getElementById("dim-val").textContent = savedDim;
-  document.getElementById("textbg-val").textContent = savedTextBg;
   
-  applyVisualSettings(savedBlur, savedDim, savedTextBg);
+  applyVisualSettings(savedBlur, savedDim);
 
   const manualCheckbox = document.getElementById("set-manual-mode");
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
@@ -165,17 +160,12 @@ let isGeneratingBg = false;
 
   document.getElementById("set-blur").addEventListener("input", (e) => {
     document.getElementById("blur-val").textContent = e.target.value;
-    applyVisualSettings(e.target.value, document.getElementById("set-dim").value, document.getElementById("set-text-bg").value);
+    applyVisualSettings(e.target.value, document.getElementById("set-dim").value);
   });
   
   document.getElementById("set-dim").addEventListener("input", (e) => {
     document.getElementById("dim-val").textContent = e.target.value;
-    applyVisualSettings(document.getElementById("set-blur").value, e.target.value, document.getElementById("set-text-bg").value);
-  });
-
-  document.getElementById("set-text-bg").addEventListener("input", (e) => {
-    document.getElementById("textbg-val").textContent = e.target.value;
-    applyVisualSettings(document.getElementById("set-blur").value, document.getElementById("set-dim").value, e.target.value);
+    applyVisualSettings(document.getElementById("set-blur").value, e.target.value);
   });
 
   manualCheckbox.addEventListener("change", (e) => {
@@ -195,7 +185,6 @@ let isGeneratingBg = false;
     localStorage.setItem("ambient_cf_token", document.getElementById("set-cf-token").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
-    localStorage.setItem("ambient_text_bg", document.getElementById("set-text-bg").value);
     settingsMenu.style.display = "none";
   });
 
@@ -222,7 +211,6 @@ let isGeneratingBg = false;
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-    // Initial image generation removed. It will wait for the AI.
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
@@ -259,10 +247,9 @@ function setDotState(dotId, state) {
 }
 
 // --- HELPER: Live Visual Settings ---
-function applyVisualSettings(blur, dim, textBg) {
+function applyVisualSettings(blur, dim) {
   document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
-  document.documentElement.style.setProperty('--ambient-text-bg', textBg / 100);
 }
 
 function populateManualDropdowns() {
@@ -487,14 +474,18 @@ function crossfadeAudio(newUrl) {
   }, 50);
 }
 
-// --- WEATHER ENGINE (Improved Particles) ---
+// --- WEATHER ENGINE (Improved Particles & Scroll Freeze Fix) ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
   canvas.style.opacity = 0;
+  
+  // Stop the current animation loop safely
+  isAnimating = false;
+  if (animationId) cancelAnimationFrame(animationId);
+
   setTimeout(() => {
-    cancelAnimationFrame(animationId);
     particles = [];
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -516,6 +507,7 @@ function setWeather(effect) {
     if (effect === "fiery") {
       fieryOverlay.style.opacity = 1;
       for (let i = 0; i < 80; i++) particles.push(new Particle("ember"));
+      isAnimating = true;
       animateWeather();
       canvas.style.opacity = 1;
       return;
@@ -523,6 +515,7 @@ function setWeather(effect) {
 
     if (effect === "thunderstorm") {
       for (let i = 0; i < 200; i++) particles.push(new Particle("rain"));
+      isAnimating = true;
       animateWeather();
       canvas.style.opacity = 1;
       lightningInterval = setInterval(() => {
@@ -541,6 +534,7 @@ function setWeather(effect) {
 
     if (effect === "rain") {
       for (let i = 0; i < 200; i++) particles.push(new Particle("rain"));
+      isAnimating = true;
       animateWeather();
       canvas.style.opacity = 1;
       return;
@@ -548,6 +542,7 @@ function setWeather(effect) {
 
     if (effect === "snow") {
       for (let i = 0; i < 150; i++) particles.push(new Particle("snow"));
+      isAnimating = true;
       animateWeather();
       canvas.style.opacity = 1;
       return;
@@ -555,6 +550,7 @@ function setWeather(effect) {
 
     if (effect === "blizzard") {
       for (let i = 0; i < 300; i++) particles.push(new Particle("blizzard"));
+      isAnimating = true;
       animateWeather();
       canvas.style.opacity = 1;
       return;
@@ -567,8 +563,6 @@ class Particle {
     this.type = type;
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
-    
-    // Add depth for varied sizes and speeds
     this.depth = Math.random() * 0.8 + 0.2; 
 
     if (type === "rain" || type === "thunderstorm") {
@@ -584,7 +578,7 @@ class Particle {
       this.swaySpeed = Math.random() * 0.02 + 0.01;
     } else if (type === "blizzard") {
       this.vy = (Math.random() * 5 + 4) * this.depth;
-      this.vx = (Math.random() * 6 - 3) * this.depth; // Strong wind
+      this.vx = (Math.random() * 6 - 3) * this.depth;
       this.radius = (Math.random() * 3 + 1) * this.depth;
       this.sway = Math.random() * Math.PI * 2;
       this.swaySpeed = Math.random() * 0.05 + 0.02;
@@ -603,7 +597,7 @@ class Particle {
 
     if (this.type === "snow" || this.type === "blizzard") {
       this.sway += this.swaySpeed;
-      this.x += Math.sin(this.sway) * 1.5; // Gentle sine wave sway
+      this.x += Math.sin(this.sway) * 1.5;
     }
 
     if (this.type === "rain" && this.y > canvas.height) { this.y = -20; this.x = Math.random() * canvas.width; }
@@ -624,23 +618,24 @@ class Particle {
       ctx.beginPath(); 
       ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 255, 255, ${this.depth * 0.8})`;
-      ctx.shadowBlur = this.depth * 10; // Soft glow for snow
+      ctx.shadowBlur = this.depth * 10; 
       ctx.shadowColor = "white";
       ctx.fill();
-      ctx.shadowBlur = 0; // Reset
+      ctx.shadowBlur = 0;
     } else if (this.type === "ember") {
       ctx.beginPath(); 
       ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, ${Math.floor(Math.random() * 100 + 50)}, 0, ${this.opacity})`;
-      ctx.shadowBlur = 15; // Glowing ember
+      ctx.shadowBlur = 15; 
       ctx.shadowColor = "orange";
       ctx.fill();
-      ctx.shadowBlur = 0; // Reset
+      ctx.shadowBlur = 0;
     }
   }
 }
 
 function animateWeather() {
+  if (!isAnimating) return; // Stops the loop if we switched effects
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   particles.forEach(p => { p.update(); p.draw(); });
   animationId = requestAnimationFrame(animateWeather);
