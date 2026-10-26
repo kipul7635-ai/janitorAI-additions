@@ -10,15 +10,12 @@ chrome.webRequest.onBeforeRequest.addListener(
           const rawBody = decoder.decode(details.requestBody.raw[0].bytes);
           const bodyJson = JSON.parse(rawBody);
           
-          // Only trigger for AI messages
           if (bodyJson.is_bot === true) {
             if (details.tabId !== -1) {
               chrome.tabs.sendMessage(details.tabId, { action: "chat_updated" }).catch(() => {});
             }
           }
-        } catch (e) {
-          // Ignore parsing errors
-        }
+        } catch (e) {}
       }
     }
   },
@@ -29,35 +26,50 @@ chrome.webRequest.onBeforeRequest.addListener(
 // 2. Listen for image generation requests from content.js
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_image") {
-    fetchCloudflareImage(request.prompt, request.accountId, request.apiToken)
+    fetchImage(request.prompt, request.accountId, request.apiToken)
       .then(imageUrl => sendResponse({ success: true, imageUrl: imageUrl }))
       .catch(error => sendResponse({ success: false, error: error.message }));
       
-    return true; // Indicates an asynchronous response
+    return true;
   }
 });
 
-// 3. The Cloudflare fetch function (runs in the background to avoid CORS)
-async function fetchCloudflareImage(prompt, accountId, apiToken) {
-  const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
+// 3. The Hybrid Image Generator (Cloudflare with Pollinations Fallback)
+async function fetchImage(prompt, accountId, apiToken) {
+  const styleModifiers = ", safe for work, family friendly, environment concept art, background scenery, anime visual novel background, highly detailed, clean line art, no humans, no animals, no creatures, no characters, no people, no anatomy, empty landscape";
   const fullPrompt = prompt + styleModifiers;
-  const model = "@cf/black-forest-labs/flux-1-schnell";
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ prompt: fullPrompt })
-  });
+  // --- ATTEMPT 1: CLOUDFLARE (FLUX) ---
+  if (accountId && apiToken) {
+    try {
+      const model = "@cf/black-forest-labs/flux-1-schnell";
+      const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
 
-  const data = await response.json();
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt: fullPrompt })
+      });
 
-  if (!response.ok || !data.success) {
-    throw new Error(data.errors?.[0]?.message || "Failed to generate image via Cloudflare");
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        return `data:image/jpeg;base64,${data.result.image}`;
+      } else {
+        throw new Error(data.errors?.[0]?.message || "Cloudflare generation failed");
+      }
+    } catch (error) {
+      console.warn("⚠️ Cloudflare generation failed. Falling back to Pollinations. Reason:", error.message);
+    }
   }
 
-  return `data:image/jpeg;base64,${data.result.image}`;
+  // --- ATTEMPT 2: POLLINATIONS (Fallback) ---
+  const seed = Math.floor(Math.random() * 100000);
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=1080&height=1920&nologo=true&seed=${seed}`;
+  
+  console.log("🔄 Using Pollinations fallback:", pollinationsUrl);
+  return pollinationsUrl;
 }
