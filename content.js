@@ -222,8 +222,7 @@ let isGeneratingBg = false;
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-    
-    generateCloudflareBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
+    // Initial image generation removed. It will wait for the AI.
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
@@ -488,7 +487,7 @@ function crossfadeAudio(newUrl) {
   }, 50);
 }
 
-// --- WEATHER ENGINE ---
+// --- WEATHER ENGINE (Improved Particles) ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
@@ -516,42 +515,46 @@ function setWeather(effect) {
 
     if (effect === "fiery") {
       fieryOverlay.style.opacity = 1;
-      for (let i = 0; i < 60; i++) particles.push(new Particle("ember"));
+      for (let i = 0; i < 80; i++) particles.push(new Particle("ember"));
       animateWeather();
       canvas.style.opacity = 1;
       return;
     }
 
     if (effect === "thunderstorm") {
-      for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+      for (let i = 0; i < 200; i++) particles.push(new Particle("rain"));
       animateWeather();
       canvas.style.opacity = 1;
       lightningInterval = setInterval(() => {
         if (Math.random() > 0.7) {
           const lightningOverlay = document.getElementById("ambient-lightning-overlay");
-          lightningOverlay.style.opacity = Math.random() * 0.5 + 0.3;
+          lightningOverlay.style.opacity = Math.random() * 0.6 + 0.4;
           setTimeout(() => lightningOverlay.style.opacity = 0, 100);
+          setTimeout(() => {
+            lightningOverlay.style.opacity = Math.random() * 0.4 + 0.2;
+            setTimeout(() => lightningOverlay.style.opacity = 0, 150);
+          }, 200);
         }
-      }, 4000);
+      }, 3000);
       return;
     }
 
     if (effect === "rain") {
-      for (let i = 0; i < 150; i++) particles.push(new Particle("rain"));
+      for (let i = 0; i < 200; i++) particles.push(new Particle("rain"));
       animateWeather();
       canvas.style.opacity = 1;
       return;
     }
 
     if (effect === "snow") {
-      for (let i = 0; i < 100; i++) particles.push(new Particle("snow"));
+      for (let i = 0; i < 150; i++) particles.push(new Particle("snow"));
       animateWeather();
       canvas.style.opacity = 1;
       return;
     }
 
     if (effect === "blizzard") {
-      for (let i = 0; i < 250; i++) particles.push(new Particle("blizzard"));
+      for (let i = 0; i < 300; i++) particles.push(new Particle("blizzard"));
       animateWeather();
       canvas.style.opacity = 1;
       return;
@@ -565,19 +568,44 @@ class Particle {
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
     
-    if (type === "rain") {
-      this.vy = Math.random() * 8 + 10; this.vx = -2; this.length = Math.random() * 20 + 10;
+    // Add depth for varied sizes and speeds
+    this.depth = Math.random() * 0.8 + 0.2; 
+
+    if (type === "rain" || type === "thunderstorm") {
+      this.vy = (Math.random() * 10 + 15) * this.depth;
+      this.vx = -3 * this.depth;
+      this.length = (Math.random() * 20 + 10) * this.depth;
+      this.opacity = Math.random() * 0.3 + 0.2;
     } else if (type === "snow") {
-      this.vy = Math.random() * 1.5 + 1; this.vx = Math.random() * 1 - 0.5; this.radius = Math.random() * 3 + 1;
+      this.vy = (Math.random() * 1.5 + 1) * this.depth;
+      this.vx = (Math.random() * 1 - 0.5) * this.depth;
+      this.radius = (Math.random() * 3 + 1) * this.depth;
+      this.sway = Math.random() * Math.PI * 2;
+      this.swaySpeed = Math.random() * 0.02 + 0.01;
     } else if (type === "blizzard") {
-      this.vy = Math.random() * 4 + 3; this.vx = Math.random() * 4 - 2; this.radius = Math.random() * 3 + 1;
+      this.vy = (Math.random() * 5 + 4) * this.depth;
+      this.vx = (Math.random() * 6 - 3) * this.depth; // Strong wind
+      this.radius = (Math.random() * 3 + 1) * this.depth;
+      this.sway = Math.random() * Math.PI * 2;
+      this.swaySpeed = Math.random() * 0.05 + 0.02;
     } else if (type === "ember") {
-      this.y = canvas.height + Math.random() * 100; this.vy = -(Math.random() * 1.5 + 0.5); this.vx = Math.random() * 1 - 0.5; this.radius = Math.random() * 2 + 1; this.opacity = Math.random();
+      this.y = canvas.height + Math.random() * 100;
+      this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
+      this.vx = (Math.random() * 1 - 0.5) * this.depth;
+      this.radius = (Math.random() * 2 + 1) * this.depth;
+      this.opacity = Math.random();
     }
   }
 
   update() {
-    this.x += this.vx; this.y += this.vy;
+    this.x += this.vx; 
+    this.y += this.vy;
+
+    if (this.type === "snow" || this.type === "blizzard") {
+      this.sway += this.swaySpeed;
+      this.x += Math.sin(this.sway) * 1.5; // Gentle sine wave sway
+    }
+
     if (this.type === "rain" && this.y > canvas.height) { this.y = -20; this.x = Math.random() * canvas.width; }
     if ((this.type === "snow" || this.type === "blizzard") && this.y > canvas.height) { this.y = -20; this.x = Math.random() * canvas.width; }
     if (this.type === "ember" && this.y < -20) { this.y = canvas.height + 20; this.x = Math.random() * canvas.width; }
@@ -585,14 +613,29 @@ class Particle {
 
   draw() {
     if (this.type === "rain") {
-      ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(this.x + this.vx, this.y + this.length);
-      ctx.strokeStyle = "rgba(150, 180, 255, 0.5)"; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.beginPath(); 
+      ctx.moveTo(this.x, this.y); 
+      ctx.lineTo(this.x + this.vx, this.y + this.length);
+      ctx.strokeStyle = `rgba(180, 210, 255, ${this.opacity})`; 
+      ctx.lineWidth = this.depth * 1.5; 
+      ctx.lineCap = "round";
+      ctx.stroke();
     } else if (this.type === "snow" || this.type === "blizzard") {
-      ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 255, 255, ${this.type === "blizzard" ? 0.8 : 0.6})`; ctx.fill();
+      ctx.beginPath(); 
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 255, ${this.depth * 0.8})`;
+      ctx.shadowBlur = this.depth * 10; // Soft glow for snow
+      ctx.shadowColor = "white";
+      ctx.fill();
+      ctx.shadowBlur = 0; // Reset
     } else if (this.type === "ember") {
-      ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, ${Math.floor(Math.random() * 100 + 50)}, 0, ${this.opacity})`; ctx.fill();
+      ctx.beginPath(); 
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, ${Math.floor(Math.random() * 100 + 50)}, 0, ${this.opacity})`;
+      ctx.shadowBlur = 15; // Glowing ember
+      ctx.shadowColor = "orange";
+      ctx.fill();
+      ctx.shadowBlur = 0; // Reset
     }
   }
 }
