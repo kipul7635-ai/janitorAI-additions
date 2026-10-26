@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "My Janitor Theme",
-  "version": "1.6",
+  "version": "1.8",
   "description": "Dynamic ambient engine for Janitor AI chats.",
   "permissions": [
     "webRequest",
     "tabs"
   ],
   "host_permissions": [
-    "*://*.janitorai.com/*"
+    "*://*.janitorai.com/*",
+    "https://api.cloudflare.com/*"
   ],
   "background": {
     "service_worker": "background.js"
