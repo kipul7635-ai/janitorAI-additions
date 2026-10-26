@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "My Janitor Theme",
-  "version": "1.5",
+  "version": "1.6",
   "description": "Dynamic ambient engine for Janitor AI chats.",
   "permissions": [
     "webRequest",
@@ -22,7 +22,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["images/*", "audio/*", "assets.json"],
+      "resources": ["audio/*", "assets.json"],
       "matches": ["*://*.janitorai.com/*"]
     }
   ]
