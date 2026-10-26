@@ -376,36 +376,22 @@ async function generateCloudflareBackground(prompt) {
   }
 
   isGeneratingBg = true;
-
-  const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
-  const fullPrompt = prompt + styleModifiers;
-  const model = "@cf/black-forest-labs/flux-1-schnell";
-  
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
-
-  console.log("🎨 Generating new background via Cloudflare Workers AI...");
+  console.log("🎨 Requesting new background via Cloudflare Workers AI...");
 
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${cfToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        prompt: fullPrompt
-      })
+    // Send message to background.js to handle the fetch and bypass CORS
+    const response = await chrome.runtime.sendMessage({
+      action: "generate_image",
+      prompt: prompt,
+      accountId: accountId,
+      apiToken: cfToken
     });
 
-    const data = await response.json();
-    
-    if (!response.ok || !data.success) {
-      throw new Error(data.errors?.[0]?.message || "Failed to generate image via Cloudflare");
+    if (!response.success) {
+      throw new Error(response.error);
     }
 
-    // Cloudflare returns the image as base64 in JSON
-    const base64Image = data.result.image;
-    const imageUrl = `data:image/jpeg;base64,${base64Image}`;
+    const imageUrl = response.imageUrl;
     
     // Preload the image to ensure it's fully processed
     const img = new Image();
