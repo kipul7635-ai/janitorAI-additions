@@ -1,4 +1,3 @@
-let refreshInterval = null; 
 let cachedImages = [];
 let cachedAudio = [];
 
@@ -53,9 +52,6 @@ let lastDecision = null; // AI Memory
     
     <label>Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
-    
-    <label>Refresh Frequency (Seconds)</label>
-    <input type="number" id="set-frequency" value="10" min="5" />
 
     <label>Background Blur (<span id="blur-val">10</span>px)</label>
     <input type="range" id="set-blur" min="0" max="30" value="10" />
@@ -128,7 +124,6 @@ let lastDecision = null; // AI Memory
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
-  document.getElementById("set-frequency").value = localStorage.getItem("ambient_frequency") || "10";
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
@@ -148,7 +143,6 @@ let lastDecision = null; // AI Memory
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
 
-  // Live preview for sliders
   document.getElementById("set-blur").addEventListener("input", (e) => {
     document.getElementById("blur-val").textContent = e.target.value;
     applyVisualSettings(e.target.value, document.getElementById("set-dim").value);
@@ -163,12 +157,6 @@ let lastDecision = null; // AI Memory
     const isManual = e.target.checked;
     localStorage.setItem("ambient_manual_mode", isManual);
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
-    if (isManual) {
-      if (refreshInterval) clearInterval(refreshInterval);
-      console.log("⏸️ Manual Mode Enabled.");
-    } else {
-      startAmbientLoop();
-    }
   });
 
   document.getElementById("manual-bg").addEventListener("change", (e) => applyAmbience({ background: e.target.value }));
@@ -179,11 +167,9 @@ let lastDecision = null; // AI Memory
     localStorage.setItem("ambient_api_key", document.getElementById("set-api-key").value.trim());
     localStorage.setItem("ambient_model", document.getElementById("set-model").value.trim());
     localStorage.setItem("ambient_proxy", document.getElementById("set-proxy").value.trim());
-    localStorage.setItem("ambient_frequency", document.getElementById("set-frequency").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
     settingsMenu.style.display = "none";
-    startAmbientLoop();
   });
 
   document.getElementById("test-ai-btn").addEventListener("click", async () => {
@@ -202,20 +188,37 @@ let lastDecision = null; // AI Memory
   const audio = new Audio();
   audio.id = "ambient-audio-player";
   audio.loop = true;
-  audio.volume = 0; // Start at 0 for fade-in
+  audio.volume = 0; 
   audio.style.display = "none";
   document.body.appendChild(audio);
 
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-    startAmbientLoop();
+  });
+
+  // --- 6. LISTEN FOR NETWORK TRIGGERS ---
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "chat_updated") {
+      // Ignore if manual mode is enabled
+      if (localStorage.getItem("ambient_manual_mode") === "true") return;
+
+      console.log("⚡ Network event caught: Generation finished. Waiting 500ms for DOM to render...");
+      
+      // Short delay to ensure React finishes drawing the new text before we scrape it
+      setTimeout(() => {
+        let currentText = getLatestChatContext();
+        if (currentText) {
+          const apiKey = localStorage.getItem("ambient_api_key");
+          if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
+        }
+      }, 500); 
+    }
   });
 })();
 
 // --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
-  // Set CSS variables on the document root so CSS can read them
   document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
 }
@@ -234,21 +237,6 @@ function resizeCanvas() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
   }
-}
-
-// --- THE POLLING LOOP ---
-function startAmbientLoop() {
-  if (refreshInterval) clearInterval(refreshInterval);
-  if (localStorage.getItem("ambient_manual_mode") === "true") return;
-
-  const freq = parseInt(localStorage.getItem("ambient_frequency")) || 10;
-  refreshInterval = setInterval(() => {
-    let currentText = getLatestChatContext();
-    if (!currentText) currentText = "No new text detected. Maintain the current atmosphere.";
-    
-    const apiKey = localStorage.getItem("ambient_api_key");
-    if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
-  }, freq * 1000);
 }
 
 // --- SCRAPER ---
@@ -278,10 +266,9 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
-  // AI MEMORY: Append previous decision to keep it consistent
   let memoryPrompt = "";
   if (lastDecision) {
-    memoryPrompt = `\nIMPORTANT MEMORY: The previous ambience was ${JSON.stringify(lastDecision)}. Do not change the background or music unless the chat explicitly describes a major scene change (e.g., moving to a new location).`;
+    memoryPrompt = `\nIMPORTANT MEMORY: The previous ambience was ${JSON.stringify(lastDecision)}. Do not change the background or music unless the chat explicitly describes a major scene change.`;
   }
 
   const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
@@ -318,7 +305,7 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
     
     try {
       const decision = JSON.parse(aiMessage);
-      lastDecision = decision; // Save for next loop
+      lastDecision = decision; 
       
       if (decision.reasoning) {
         console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
@@ -336,11 +323,10 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
   }
 }
 
-// --- AMBIENCE ENGINE (Crossfades & Colors) ---
+// --- AMBIENCE ENGINE ---
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
-  // 1. Background Crossfade
   if (decision.background && decision.background !== currentBackground) {
     const oldBg = currentBackground;
     currentBackground = decision.background;
@@ -348,35 +334,26 @@ function applyAmbience(decision) {
 
     const layer1 = document.getElementById("bg-layer-1");
     const layer2 = document.getElementById("bg-layer-2");
-
-    // Determine which layer is currently active
     const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
     const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
 
-    // Set new image on inactive layer
     inactiveLayer.style.backgroundImage = `url("${url}")`;
-    
-    // Trigger reflow to ensure transition works
-    void inactiveLayer.offsetWidth;
+    void inactiveLayer.offsetWidth; 
 
-    // Crossfade
     activeLayer.classList.remove("active");
     inactiveLayer.classList.add("active");
 
-    // Extract color and recolor UI
     if (oldBg !== currentBackground) {
       extractDominantColor(url);
     }
   }
 
-  // 2. Audio Crossfade
   if (decision.music && decision.music !== currentMusic) {
     currentMusic = decision.music;
     const newAudioUrl = chrome.runtime.getURL(currentMusic);
     crossfadeAudio(newAudioUrl);
   }
 
-  // 3. Weather Effects (Smooth)
   if (decision.effect && decision.effect !== currentEffect) {
     setWeather(decision.effect);
   }
@@ -396,12 +373,10 @@ async function extractDominantColor(imageUrl) {
     
     const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
     
-    // Darken slightly to ensure text contrast if needed, or just use directly
     const color = `rgb(${r}, ${g}, ${b})`;
     const colorDim = `rgba(${r}, ${g}, ${b}, 0.3)`;
     const colorBright = `rgb(${Math.min(255, r+40)}, ${Math.min(255, g+40)}, ${Math.min(255, b+40)})`;
 
-    // Override Janitor's Purple/Pink CSS variables
     const root = document.documentElement;
     root.style.setProperty('--colour-purple-500', color);
     root.style.setProperty('--colour-purple-400', colorBright);
@@ -432,7 +407,6 @@ function crossfadeAudio(newUrl) {
       audio.src = newUrl;
       audio.play().catch(e => console.log("Play blocked:", e));
       
-      // Fade back in to 0.5
       let inVol = 0;
       const fadeInInterval = setInterval(() => {
         inVol += 0.05;
@@ -449,12 +423,11 @@ function crossfadeAudio(newUrl) {
   }, 50);
 }
 
-// --- WEATHER ENGINE (Fade Transitions) ---
+// --- WEATHER ENGINE ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
-  // Fade out old particles
   canvas.style.opacity = 0;
   setTimeout(() => {
     cancelAnimationFrame(animationId);
@@ -468,7 +441,6 @@ function setWeather(effect) {
     fieryOverlay.style.opacity = 0;
     if (lightningInterval) clearInterval(lightningInterval);
 
-    // Generate new particles
     if (effect === "none") { canvas.style.opacity = 1; return; }
 
     if (effect === "fog") {
@@ -519,10 +491,9 @@ function setWeather(effect) {
       canvas.style.opacity = 1;
       return;
     }
-  }, 1500); // Wait 1.5s for fade out before swapping
+  }, 1500); 
 }
 
-// --- PARTICLE CLASS & ANIMATION (Unchanged) ---
 class Particle {
   constructor(type) {
     this.type = type;
