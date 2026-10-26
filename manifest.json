@@ -1,9 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "jAI dynamic ambience",
-  "version": "1.3",
+  "name": "My Janitor Theme",
+  "version": "1.5",
   "description": "Dynamic ambient engine for Janitor AI chats.",
-  "permissions": ["storage"], 
+  "permissions": [
+    "webRequest",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.janitorai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.janitorai.com/chats/*"],
