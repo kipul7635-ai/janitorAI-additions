@@ -8,7 +8,7 @@ let currentEffect = "none";
 let lightningInterval = null;
 let currentBackgroundPrompt = "";
 let currentMusic = "";
-let lastDecision = null; // AI Memory
+let lastDecision = null; 
 let isGeneratingBg = false;
 
 // --- 0. FETCH AUDIO ASSETS EARLY ---
@@ -32,12 +32,16 @@ let isGeneratingBg = false;
   settingsBtn.id = "ambient-settings-btn";
   settingsBtn.innerHTML = "⚙️";
 
-  const indicator = document.createElement("div");
-  indicator.id = "ambient-indicator";
-  indicator.className = "idle";
+  const indicators = document.createElement("div");
+  indicators.id = "ambient-indicators";
+  indicators.innerHTML = `
+    <div class="dot idle" id="dot-orch"></div>
+    <div class="dot idle" id="dot-cf"></div>
+    <div class="dot idle" id="dot-poll"></div>
+  `;
 
   uiWrapper.appendChild(settingsBtn);
-  uiWrapper.appendChild(indicator);
+  uiWrapper.appendChild(indicators);
 
   const settingsMenu = document.createElement("div");
   settingsMenu.id = "ambient-settings-menu";
@@ -203,7 +207,6 @@ let isGeneratingBg = false;
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
     
-    // Set an initial default background
     generateCloudflareBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
   });
 
@@ -228,13 +231,30 @@ let isGeneratingBg = false;
   });
 })();
 
+// --- HELPER: Dot State Logic ---
+function setDotState(dotId, state) {
+  const dot = document.getElementById(dotId);
+  if (!dot) return;
+
+  // Reset classes
+  dot.className = "dot " + state;
+
+  // If it's a flash state (success/error), revert to idle after 2 seconds
+  if (state === "success" || state === "error") {
+    setTimeout(() => {
+      if (dot.classList.contains(state)) {
+        dot.className = "dot idle";
+      }
+    }, 2000);
+  }
+}
+
 // --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
   document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
 }
 
-// --- HELPER: Populate Dropdowns ---
 function populateManualDropdowns() {
   const audioSelect = document.getElementById("manual-audio");
   if (!audioSelect) return;
@@ -264,14 +284,9 @@ function getLatestChatContext() {
   return contextText.trim();
 }
 
-function setIndicator(state) {
-  const ind = document.getElementById("ambient-indicator");
-  if (ind) ind.className = state;
-}
-
 // --- AI FUNCTION ---
 async function askAI(chatText, availableAudio, apiKey) {
-  setIndicator("generating"); 
+  setDotState("dot-orch", "loading"); 
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
@@ -312,7 +327,7 @@ async function askAI(chatText, availableAudio, apiKey) {
     const result = await response.json();
     if (result.error) {
       console.error("API Error:", result.error);
-      setIndicator("error"); setTimeout(() => setIndicator("idle"), 3000); return;
+      setDotState("dot-orch", "error"); return;
     }
 
     const aiMessage = result.choices[0].message.content;
@@ -329,15 +344,15 @@ async function askAI(chatText, availableAudio, apiKey) {
       }
 
       applyAmbience(decision);
-      setIndicator("idle"); 
+      setDotState("dot-orch", "success"); 
     } catch (e) {
       console.error("Failed to parse JSON:", e);
       console.error("The string that failed was:", aiMessage);
-      setIndicator("error"); setTimeout(() => setIndicator("idle"), 3000);
+      setDotState("dot-orch", "error");
     }
   } catch (e) {
     console.error("Fetch failed:", e);
-    setIndicator("error"); setTimeout(() => setIndicator("idle"), 3000);
+    setDotState("dot-orch", "error");
   }
 }
 
@@ -364,7 +379,7 @@ function applyAmbience(decision) {
   }
 }
 
-// --- CLOUDFLARE WORKERS AI IMAGE GENERATOR ---
+// --- IMAGE GENERATOR (Cloudflare -> Pollinations) ---
 async function generateCloudflareBackground(prompt) {
   if (isGeneratingBg) return; 
   
@@ -372,12 +387,12 @@ async function generateCloudflareBackground(prompt) {
   const cfToken = localStorage.getItem("ambient_cf_token");
   
   if (!accountId || !cfToken) {
-    console.warn("⚠️ Cloudflare Account ID or API Token is missing. Skipping background generation.");
-    return;
+    console.warn("⚠️ Cloudflare keys missing. Falling straight to Pollinations.");
   }
 
   isGeneratingBg = true;
-  console.log("🎨 Requesting new background via Cloudflare Workers AI...");
+  setDotState("dot-cf", "loading");
+  setDotState("dot-poll", "idle");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -391,11 +406,24 @@ async function generateCloudflareBackground(prompt) {
       throw new Error(response.error);
     }
 
+    // Handle specific provider status flashes
+    if (response.provider === 'cloudflare') {
+      setDotState("dot-cf", "success");
+    } else if (response.provider === 'pollinations') {
+      // If we fell back to Pollinations, Cloudflare failed.
+      setDotState("dot-cf", "error");
+      setDotState("dot-poll", "loading");
+    }
+
     const imageUrl = response.imageUrl;
     
     const img = new Image();
     img.onload = () => {
       isGeneratingBg = false;
+      
+      if (response.provider === 'pollinations') {
+        setDotState("dot-poll", "success");
+      }
       
       const layer1 = document.getElementById("bg-layer-1");
       const layer2 = document.getElementById("bg-layer-2");
@@ -413,6 +441,8 @@ async function generateCloudflareBackground(prompt) {
 
     img.onerror = () => {
       isGeneratingBg = false;
+      if (response.provider === 'cloudflare') setDotState("dot-cf", "error");
+      if (response.provider === 'pollinations') setDotState("dot-poll", "error");
       console.error("❌ Failed to load generated image into browser.");
     };
 
@@ -420,7 +450,9 @@ async function generateCloudflareBackground(prompt) {
 
   } catch (error) {
     isGeneratingBg = false;
-    console.error("❌ Cloudflare AI generation error:", error);
+    setDotState("dot-cf", "error");
+    setDotState("dot-poll", "error");
+    console.error("❌ Total image generation failure:", error);
   }
 }
 
