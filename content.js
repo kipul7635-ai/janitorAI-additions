@@ -208,10 +208,10 @@ let lastDecision = null; // AI Memory
       // Clear any existing timer
       clearTimeout(networkDebounce);
       
-      // Wait 1 second after the *last* track event before scraping
-      networkDebounce = setTimeout(() => {
-        console.log("⚡ Track event caught. Scraping finalized chat...");
-        
+      // Wait 1 second after the *last* message save event before scraping
+networkDebounce = setTimeout(() => {
+  console.log("⚡ Messages endpoint caught. Scraping finalized chat...");
+  
         let currentText = getLatestChatContext();
         if (currentText) {
           const apiKey = localStorage.getItem("ambient_api_key");
