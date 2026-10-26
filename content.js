@@ -1,4 +1,3 @@
-let cachedImages = [];
 let cachedAudio = [];
 
 // Weather Engine Variables
@@ -7,16 +6,16 @@ let animationId;
 let particles = [];
 let currentEffect = "none";
 let lightningInterval = null;
-let currentBackground = "";
+let currentBackgroundPrompt = "";
 let currentMusic = "";
 let lastDecision = null; // AI Memory
+let isGeneratingBg = false;
 
-// --- 0. FETCH ASSETS EARLY ---
+// --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
   try {
     const res = await fetch(chrome.runtime.getURL("assets.json"));
     const data = await res.json();
-    cachedImages = data.images || [];
     cachedAudio = data.audio || [];
     populateManualDropdowns();
   } catch (e) {
@@ -65,9 +64,6 @@ let lastDecision = null; // AI Memory
     </label>
 
     <div id="manual-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 10px;">
-      <label>Background</label>
-      <select id="manual-bg"></select>
-      
       <label>Audio</label>
       <select id="manual-audio"></select>
       
@@ -159,7 +155,6 @@ let lastDecision = null; // AI Memory
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
   });
 
-  document.getElementById("manual-bg").addEventListener("change", (e) => applyAmbience({ background: e.target.value }));
   document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
   document.getElementById("manual-effect").addEventListener("change", (e) => applyAmbience({ effect: e.target.value }));
 
@@ -176,7 +171,7 @@ let lastDecision = null; // AI Memory
     const apiKey = localStorage.getItem("ambient_api_key");
     if (!apiKey) return alert("Please enter and save an API key first.");
     let actualChat = getLatestChatContext() || "The group steps into a dark, gloomy forest. Rain begins to fall.";
-    await askAI(actualChat, cachedImages, cachedAudio, apiKey);
+    await askAI(actualChat, cachedAudio, apiKey);
   });
 
   // --- 5. OVERLAY & AUDIO ---
@@ -195,27 +190,26 @@ let lastDecision = null; // AI Memory
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
+    
+    // Set an initial default background since we removed the manual ones
+    generatePollinationsBackground("a quiet, mysterious room at night, anime visual novel background, no humans");
   });
 
-  // --- 6. LISTEN FOR NETWORK TRIGGERS (Debounced) ---
+  // --- 6. LISTEN FOR NETWORK TRIGGERS ---
   let networkDebounce = null;
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "chat_updated") {
-      // Ignore if manual mode is enabled
       if (localStorage.getItem("ambient_manual_mode") === "true") return;
 
-      // Clear any existing timer
       clearTimeout(networkDebounce);
       
-      // Wait 1 second after the *last* message save event before scraping
-networkDebounce = setTimeout(() => {
-  console.log("⚡ Messages endpoint caught. Scraping finalized chat...");
-  
+      networkDebounce = setTimeout(() => {
+        console.log("⚡ Messages endpoint caught. Scraping finalized chat...");
         let currentText = getLatestChatContext();
         if (currentText) {
           const apiKey = localStorage.getItem("ambient_api_key");
-          if (apiKey) askAI(currentText, cachedImages, cachedAudio, apiKey);
+          if (apiKey) askAI(currentText, cachedAudio, apiKey);
         }
       }, 1000); 
     }
@@ -230,10 +224,8 @@ function applyVisualSettings(blur, dim) {
 
 // --- HELPER: Populate Dropdowns ---
 function populateManualDropdowns() {
-  const bgSelect = document.getElementById("manual-bg");
   const audioSelect = document.getElementById("manual-audio");
-  if (!bgSelect || !audioSelect) return;
-  bgSelect.innerHTML = cachedImages.map(img => `<option value="${img}">${img}</option>`).join('');
+  if (!audioSelect) return;
   audioSelect.innerHTML = cachedAudio.map(aud => `<option value="${aud}">${aud}</option>`).join('');
 }
 
@@ -266,20 +258,25 @@ function setIndicator(state) {
 }
 
 // --- AI FUNCTION ---
-async function askAI(chatText, availableImages, availableAudio, apiKey) {
+async function askAI(chatText, availableAudio, apiKey) {
   setIndicator("generating"); 
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   const proxyUrl = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
 
   let memoryPrompt = "";
   if (lastDecision) {
-    memoryPrompt = `\nIMPORTANT MEMORY: The previous ambience was ${JSON.stringify(lastDecision)}. Do not change the background or music unless the chat explicitly describes a major scene change.`;
+    memoryPrompt = `\nIMPORTANT MEMORY: The previous background was "${currentBackgroundPrompt}". If the characters are still in the same location, output "none" for the background. Do not change the background or music unless the chat explicitly describes a major scene change (e.g., moving to a new location).`;
   }
 
-  const systemPrompt = `You are an ambient engine. Based on the chat, choose a background, music, and weather effect. 
-  Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning". Do not output any markdown.
-  "reasoning" should be a short, immersive sentence explaining why you chose these elements.
-  Available backgrounds: ${JSON.stringify(availableImages)}
+  const systemPrompt = `You are an ambient engine for a roleplay. Based on the chat, decide the background, music, and weather.
+  Output ONLY a valid JSON object with the exact keys "background", "music", "effect", and "reasoning".
+
+  CRITICAL RULES FOR BACKGROUNDS:
+  1. "background" must be a concise visual description (max 10 words) for an image generator.
+  2. The style MUST be an anime visual novel background.
+  3. NEVER include living beings. (NO humans, NO characters, NO animals).
+  4. ONLY provide a new background prompt if the scene drastically changes location. If they stay in the same place, output "none" for the background to save API calls.
+
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]${memoryPrompt}`;
 
@@ -332,69 +329,64 @@ async function askAI(chatText, availableImages, availableAudio, apiKey) {
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
 
-  if (decision.background && decision.background !== currentBackground) {
-    const oldBg = currentBackground;
-    currentBackground = decision.background;
-    const url = chrome.runtime.getURL(currentBackground);
-
-    const layer1 = document.getElementById("bg-layer-1");
-    const layer2 = document.getElementById("bg-layer-2");
-    const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
-    const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
-
-    inactiveLayer.style.backgroundImage = `url("${url}")`;
-    void inactiveLayer.offsetWidth; 
-
-    activeLayer.classList.remove("active");
-    inactiveLayer.classList.add("active");
-
-    if (oldBg !== currentBackground) {
-      extractDominantColor(url);
-    }
+  // 1. Background Generation (Only if it's not "none" and actually changed)
+  if (decision.background && decision.background.toLowerCase() !== "none" && decision.background !== currentBackgroundPrompt) {
+    currentBackgroundPrompt = decision.background;
+    generatePollinationsBackground(currentBackgroundPrompt);
   }
 
+  // 2. Audio Crossfade
   if (decision.music && decision.music !== currentMusic) {
     currentMusic = decision.music;
     const newAudioUrl = chrome.runtime.getURL(currentMusic);
     crossfadeAudio(newAudioUrl);
   }
 
+  // 3. Weather Effects
   if (decision.effect && decision.effect !== currentEffect) {
     setWeather(decision.effect);
   }
 }
 
-// --- COLOR EXTRACTOR ---
-async function extractDominantColor(imageUrl) {
-  try {
-    const response = await fetch(imageUrl);
-    const blob = await response.blob();
-    const bitmap = await createImageBitmap(blob);
-    
-    const canvas = document.createElement("canvas");
-    canvas.width = 1; canvas.height = 1;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(bitmap, 0, 0, 1, 1);
-    
-    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-    
-    const color = `rgb(${r}, ${g}, ${b})`;
-    const colorBright = `rgb(${Math.min(255, r+40)}, ${Math.min(255, g+40)}, ${Math.min(255, b+40)})`;
+// --- POLLINATIONS AI IMAGE GENERATOR ---
+function generatePollinationsBackground(prompt) {
+  if (isGeneratingBg) return; // Prevent spamming the API if a request is already in flight
+  isGeneratingBg = true;
 
-    const root = document.documentElement;
-    root.style.setProperty('--colour-purple-500', color);
-    root.style.setProperty('--colour-purple-400', colorBright);
-    root.style.setProperty('--colour-purple-600', color);
-    root.style.setProperty('--colour-pink-500', colorBright);
-    root.style.setProperty('--bg-purple', color);
-    root.style.setProperty('--accent-primary', color);
-    root.style.setProperty('--button-primary', colorBright);
-    root.style.setProperty('--border-active', colorBright);
+  // Append strict style modifiers to force the visual novel look and prevent characters
+  const styleModifiers = ", anime visual novel background, highly detailed, scenic, clean line art, no humans, no animals, empty landscape, no characters";
+  const fullPrompt = encodeURIComponent(prompt + styleModifiers);
+  
+  // Generate a random seed so we don't get cached identical images for the same prompt
+  const seed = Math.floor(Math.random() * 100000);
+  const imageUrl = `https://image.pollinations.ai/prompt/${fullPrompt}?width=1080&height=1920&nologo=true&seed=${seed}`;
 
-    console.log(`🎨 Recolored UI to match background: ${color}`);
-  } catch (e) {
-    console.warn("Could not extract color (CORS issue?), skipping recolor.", e);
-  }
+  console.log("🎨 Generating new background via Pollinations:", imageUrl);
+
+  // Preload the image so we don't flash a blank screen
+  const img = new Image();
+  img.onload = () => {
+    isGeneratingBg = false;
+    const layer1 = document.getElementById("bg-layer-1");
+    const layer2 = document.getElementById("bg-layer-2");
+    const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
+    const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
+
+    inactiveLayer.style.backgroundImage = `url("${imageUrl}")`;
+    void inactiveLayer.offsetWidth; 
+
+    activeLayer.classList.remove("active");
+    inactiveLayer.classList.add("active");
+    
+    console.log("✅ Background generated and applied.");
+  };
+
+  img.onerror = () => {
+    isGeneratingBg = false;
+    console.error("❌ Failed to generate background image from Pollinations.");
+  };
+
+  img.src = imageUrl;
 }
 
 // --- AUDIO CROSSFADER ---
