@@ -316,6 +316,10 @@ async function askAI(chatText, availableAudio, apiKey) {
   4. ONLY provide a new background prompt if the scene drastically changes location. If they stay in the same place, output "none" for the background to save API calls.
   5. STRICTLY FORBIDDEN WORDS: Never use words related to anatomy, biology, violence, or gore. (e.g., instead of "veins", use "cracks" or "lines"; instead of "flesh", use "stone" or "wood"). The image generator has a strict safety filter.
 
+  CRITICAL RULES FOR WEATHER EFFECTS:
+  1. Outdoor weather (rain, snow, thunderstorm, blizzard) must ONLY be used if the characters are currently outside. If they are indoors, output "none" for the effect.
+  2. "fog" and "fiery" can be used indoors or outdoors if contextually appropriate.
+
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard"]${memoryPrompt}`;
 
