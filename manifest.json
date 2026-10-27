@@ -1,8 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "JAI ambients and stuff",
-  "version": "1.8",
-  "description": "dynamic ambient engine for Janitor AI chats",
+  "name": "JAI ambience",
+  "version": "1.9",
+  "description": "Dynamic ambient engine for Janitor AI chats",
+  "icons": {
+    "16": "images/extensionIcon.png",
+    "48": "images/extensionIcon.png",
+    "128": "images/extensionIcon.png"
+  },
+  "action": {
+    "default_icon": "images/extensionIcon.png"
+  },
   "permissions": [
     "webRequest",
     "tabs"
@@ -23,7 +31,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["audio/*", "assets.json"],
+      "resources": ["audio/*", "assets.json", "images/tabIcon.png"],
       "matches": ["*://*.janitorai.com/*"]
     }
   ]
