@@ -22,6 +22,17 @@ chrome.webRequest.onBeforeRequest.addListener(
   ["requestBody"]
 );
 
+// --- Re-inject after in-site navigation ---
+// JanitorAI is a single-page app: opening a chat from the homepage / a character page changes the URL
+// WITHOUT loading the page, so manifest content_scripts never run and the extension "randomly" does
+// nothing until you hit refresh. content.js guards against double-loading, so injecting again is safe.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  if (!/^https?:\/\/([^/]+\.)?janitorai\.com\/chats\//.test(changeInfo.url)) return;
+  chrome.scripting.insertCSS({ target: { tabId }, files: ["styles.css"] }).catch(() => {});
+  chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] }).catch(() => {});
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "generate_image") {
     fetchImage(request.prompt, request.accountId, request.apiToken)
