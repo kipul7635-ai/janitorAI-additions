@@ -1,21 +1,26 @@
-(async function() {
-  try {
-    if (typeof chrome.runtime.getPackageDirectoryEntry !== 'function') {
+(function() {
+  // Check if the API exists in this context
+  if (typeof chrome.runtime.getPackageDirectoryEntry !== 'function') {
+    console.warn('[Reader] getPackageDirectoryEntry is not available in this context.');
+    window.parent.postMessage({ type: 'AUDIO_FILES', files: [] }, '*');
+    return;
+  }
+
+  // Kiwi Browser / Chromium expects a callback function here
+  chrome.runtime.getPackageDirectoryEntry(function(root) {
+    if (!root) {
       window.parent.postMessage({ type: 'AUDIO_FILES', files: [] }, '*');
       return;
     }
 
-    // Kiwi Browser (Chromium 122+) expects the Promise-based API in MV3.
-    const root = await chrome.runtime.getPackageDirectoryEntry();
-    
-    // The inner FileSystem API methods still use callbacks.
-    root.getDirectory('audio', {}, (dir) => {
+    root.getDirectory('audio', {}, function(dir) {
       const reader = dir.createReader();
       const names = [];
-      
-      const readBatch = () => {
-        reader.readEntries((entries) => {
+
+      const readBatch = function() {
+        reader.readEntries(function(entries) {
           if (!entries.length) {
+            // Finished reading all entries
             window.parent.postMessage({ type: 'AUDIO_FILES', files: names }, '*');
             return;
           }
@@ -23,20 +28,16 @@
             if (e.isFile) names.push(e.name);
           }
           readBatch();
-        }, (err) => {
+        }, function(err) {
           console.error('[Reader] readEntries failed:', err);
           window.parent.postMessage({ type: 'AUDIO_FILES', files: [] }, '*');
         });
       };
-      
+
       readBatch();
-    }, (err) => {
+    }, function(err) {
       console.error('[Reader] audio folder not found:', err);
       window.parent.postMessage({ type: 'AUDIO_FILES', files: [] }, '*');
     });
-    
-  } catch (err) {
-    console.error('[Reader] getPackageDirectoryEntry failed:', err);
-    window.parent.postMessage({ type: 'AUDIO_FILES', files: [] }, '*');
-  }
+  });
 })();
