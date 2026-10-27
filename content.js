@@ -204,17 +204,54 @@ function showVnToast(text, isError) {
   showVnToast._t = setTimeout(() => { t.style.display = "none"; }, 4000);
 }
 
-// --- 0. FETCH AUDIO ASSETS EARLY ---
-(async function loadAssetsEarly() {
+// ===== CHANGED: enumerate audio/ folder instead of fetching assets.json =====
+// --- 0. ENUMERATE AUDIO FOLDER ---
+(async function loadAudioFolder() {
   try {
-    const res = await fetch(chrome.runtime.getURL("assets.json"));
-    const data = await res.json();
-    cachedAudio = data.audio || [];
+    cachedAudio = await listAudioFiles();
     populateManualDropdowns();
+    if (cachedAudio.length === 0) {
+      console.log("[Ambient] No audio files in audio/ folder — music will be disabled.");
+    } else {
+      console.log(`[Ambient] Found ${cachedAudio.length} audio file(s).`);
+    }
   } catch (e) {
-    console.error("Failed to load assets.json early:", e);
+    console.error("[Ambient] Failed to enumerate audio folder:", e);
+    cachedAudio = [];
   }
 })();
+
+// Lists every audio file in the packaged audio/ directory and returns "audio/<encoded-name>" paths
+// (the prefix is required so chrome.runtime.getURL resolves inside the WAR scope).
+// Safeguard: resolves [] on any failure so the rest of the extension just sees "no audio".
+function listAudioFiles() {
+  return new Promise((resolve) => {
+    if (typeof chrome.runtime.getPackageDirectoryEntry !== "function") {
+      console.warn("[Ambient] getPackageDirectoryEntry unavailable — no audio.");
+      return resolve([]);
+    }
+    chrome.runtime.getPackageDirectoryEntry(root => {
+      root.getDirectory("audio", {}, dir => {
+        const reader = dir.createReader();
+        const names = [];
+        // readEntries returns ≤100 entries per call — must loop until it returns an empty array.
+        const readBatch = () => reader.readEntries(entries => {
+          if (!entries.length) {
+            const files = names
+              .filter(n => /\.(mp3|ogg|m4a|wav|flac)$/i.test(n))
+              .map(n => "audio/" + encodeURIComponent(n));
+            resolve(files);
+            return;
+          }
+          for (const e of entries) if (e.isFile) names.push(e.name);
+          readBatch();
+        }, err => { console.warn("[Ambient] readEntries failed:", err); resolve([]); });
+        readBatch();
+      }, err => { console.warn("[Ambient] audio folder not found:", err); resolve([]); });
+    });
+  });
+}
+// ===== END CHANGED =====
 
 (function () {
   // --- CHANGE TAB ICON (FAVICON) ---
@@ -421,7 +458,10 @@ function showVnToast(text, isError) {
     localStorage.setItem("ambient_vn_autosend", e.target.checked);
   });
 
-  document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
+  document.getElementById("manual-audio").addEventListener("change", (e) => {
+    if (!e.target.value) return;   // CHANGED: ignore the disabled "(no audio)" placeholder
+    applyAmbience({ music: e.target.value });
+  });
   document.getElementById("manual-effect").addEventListener("change", (e) => applyAmbience({ effect: e.target.value }));
 
   document.getElementById("save-settings").addEventListener("click", () => {
@@ -755,11 +795,22 @@ function applyVisualSettings(blur, dim) {
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
 }
 
+// ===== CHANGED: friendlier labels + graceful empty state =====
 function populateManualDropdowns() {
   const audioSelect = document.getElementById("manual-audio");
   if (!audioSelect) return;
-  audioSelect.innerHTML = cachedAudio.map(aud => `<option value="${aud}">${aud}</option>`).join('');
+
+  if (cachedAudio.length === 0) {
+    audioSelect.innerHTML = `<option value="" disabled selected>(no audio files in audio folder)</option>`;
+    return;
+  }
+
+  audioSelect.innerHTML = cachedAudio.map(aud => {
+    const label = decodeURIComponent(aud.replace(/^audio\//, ""));
+    return `<option value="${aud}">${label}</option>`;
+  }).join('');
 }
+// ===== END CHANGED =====
 
 function resizeCanvas() {
   if (canvas) {
@@ -859,6 +910,7 @@ async function askAI(chatText, availableAudio, apiKey) {
   }
 }
 
+// ===== CHANGED: audio safeguard in applyAmbience =====
 // --- AMBIENCE ENGINE ---
 function applyAmbience(decision) {
   console.log("Applying Ambience:", decision);
@@ -868,16 +920,25 @@ function applyAmbience(decision) {
     generateCloudflareBackground(currentBackgroundPrompt);
   }
 
-  if (decision.music && decision.music !== currentMusic) {
-    currentMusic = decision.music;
-    const newAudioUrl = chrome.runtime.getURL(currentMusic);
-    crossfadeAudio(newAudioUrl);
+  if (decision.music && decision.music.toLowerCase() !== "none" && decision.music !== currentMusic) {
+    if (cachedAudio.length === 0) {
+      // Safeguard: audio/ folder is empty (or unreadable) -> never try to play anything.
+      console.log("[Ambient] Music requested but no audio files are available — skipping.");
+    } else if (!cachedAudio.includes(decision.music)) {
+      // Safeguard: AI hallucinated a filename that isn't in the folder.
+      console.warn("[Ambient] Music requested but not in audio folder:", decision.music);
+    } else {
+      currentMusic = decision.music;
+      const newAudioUrl = chrome.runtime.getURL(currentMusic);
+      crossfadeAudio(newAudioUrl);
+    }
   }
 
   if (decision.effect && decision.effect !== currentEffect) {
     setWeather(decision.effect);
   }
 }
+// ===== END CHANGED =====
 
 // --- IMAGE GENERATOR (Cloudflare -> Pollinations) ---
 async function generateCloudflareBackground(prompt) {
