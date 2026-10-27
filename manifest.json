@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "JAI ambience",
+  "name": "My Janitor Theme",
   "version": "1.9",
-  "description": "Dynamic ambient engine for Janitor AI chats",
+  "description": "Dynamic ambient engine for Janitor AI chats.",
   "icons": {
     "16": "images/extensionIcon.png",
     "48": "images/extensionIcon.png",
