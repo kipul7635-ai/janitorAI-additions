@@ -300,24 +300,11 @@ let isCuttingMessage = false;
 
     console.log("✂️ Intercepted send. Cutting unseen text...");
 
-    const sendBtn = document.querySelector('button[aria-label="Send"]');
-    const originalHTML = sendBtn ? sendBtn.innerHTML : null;
-    
-    // Lock the send button to prevent crashes during Virtual Scroller recalculation
-    if (sendBtn) {
-      sendBtn.innerHTML = "⏳";
-      sendBtn.disabled = true;
-    }
-
     const success = await cutMessageAndSend();
 
-    // Keep it locked for an extra 1.5 seconds so the Virtual Scroller can breathe
+    // Keep the flag active for an extra 1.5 seconds to prevent early clicking
+    // and give the Virtual Scroller time to settle.
     await new Promise(r => setTimeout(r, 1500));
-
-    if (sendBtn) {
-      sendBtn.innerHTML = originalHTML;
-      sendBtn.disabled = false;
-    }
 
     isCuttingMessage = false;
 
@@ -329,7 +316,8 @@ let isCuttingMessage = false;
       }
     } else {
       hidden.forEach(h => h.classList.remove('vn-hidden-text'));
-      document.getElementById('vn-continue-btn').style.display = 'none';
+      const btn = document.getElementById('vn-continue-btn');
+      if (btn) btn.style.display = 'none';
     }
   };
 
@@ -415,12 +403,11 @@ async function cutMessageAndSend() {
   }
   if (!editTextarea) return false;
 
-  // 3. Read the RAW text (which includes all the ** and formatting)
+  // 3. Read the RAW text
   const rawMarkdown = editTextarea.value;
-  // Split by double newlines to isolate the paragraphs
   const paragraphs = rawMarkdown.split(/\n\n+/);
   
-  // 4. Cut the text. We keep only what was visible.
+  // 4. Cut the text.
   const visibleText = paragraphs.slice(0, vnCurrentIndex).join('\n\n');
 
   if (visibleText.trim().length === 0) return false;
@@ -433,7 +420,8 @@ async function cutMessageAndSend() {
   editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
   editTextarea.blur();
 
-  await new Promise(r => setTimeout(r, 300));
+  // CRITICAL FIX: Wait for React to process the input change before clicking save
+  await new Promise(r => setTimeout(r, 500));
 
   // 6. Click Save
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
@@ -443,15 +431,15 @@ async function cutMessageAndSend() {
     editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   }
 
-  // 7. Wait for the textarea to disappear (meaning the save was processed)
+  // 7. Wait for the textarea to disappear
   let attempts = 0;
   while (lastMsg.querySelector('textarea') && attempts < 30) {
     await new Promise(r => setTimeout(r, 100));
     attempts++;
   }
   
-  // 8. Wait for the Virtual Scroller to recalculate the height of the message
-  await new Promise(r => setTimeout(r, 1000)); 
+  // CRITICAL FIX: Wait longer for the Virtual Scroller to recalculate the height of the message
+  await new Promise(r => setTimeout(r, 1500)); 
   window.dispatchEvent(new Event('resize'));
 
   return true;
