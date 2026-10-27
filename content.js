@@ -17,18 +17,36 @@ let vnQueue = [];
 let vnCurrentIndex = 0;
 let isCuttingMessage = false;
 
-// --- HELPER: Aggressive text cleaning for matching ---
+// --- HELPER: Clean text for matching (strips markdown & HTML) ---
 function cleanForMatch(str) {
   if (!str) return "";
   return str.replace(/<[^>]*>?/gm, '') // Strip HTML tags
-            .replace(/[*_#>`~\-]/g, '') // Strip markdown formatting
-            .replace(/[^\w\s]/gi, '') // Strip punctuation (commas, quotes, etc)
+            .replace(/[*_#>`~]/g, '') // Strip markdown formatting
             .replace(/\s+/g, ' ')     // Normalize whitespace
             .trim()
             .toLowerCase();
 }
 
-// --- HELPER: Get current VN paragraphs (Filtering out Thoughts) ---
+// --- HELPER: Find exact end of a paragraph in raw markdown, ignoring formatting ---
+function findEndOfParagraph(rawMarkdown, cleanParagraphText, startSearchIndex) {
+    // Create a regex that allows markdown characters to exist between any letters
+    let regexStr = cleanParagraphText.split('').map(c => {
+        let escaped = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
+        if (c === ' ') return '\\s+'; // Match any amount of whitespace
+        return `[*_#>\`~]*${escaped}[*_#>\`~]*`; // Allow markdown chars around the letter
+    }).join('');
+    
+    let regex = new RegExp(regexStr, 'gi');
+    regex.lastIndex = startSearchIndex;
+    let match = regex.exec(rawMarkdown);
+    
+    if (match) {
+        return match.index + match[0].length; // Return the exact character index in the raw string
+    }
+    return -1;
+}
+
+// --- HELPER: Get current VN paragraphs (filters out hidden thoughts) ---
 function getVNParagraphs() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return [];
@@ -36,25 +54,30 @@ function getVNParagraphs() {
   const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
   if (!textContainer) return [];
 
-  // Select paragraphs and block elements
-  let paragraphs = Array.from(textContainer.querySelectorAll('p, div > span, blockquote'));
+  let paragraphs = Array.from(textContainer.querySelectorAll('p, li, blockquote'));
   
-  // Filter out paragraphs that are visually hidden (like inside a collapsed Thoughts block)
+  // Filter to only visible paragraphs, and exclude "thoughts" blocks
   paragraphs = paragraphs.filter(p => {
-      const details = p.closest('details');
-      // If it's inside a closed details tag, skip it
-      if (details && !details.open) {
-          return false; 
-      }
-      return p.innerText.trim().length > 0 && p.offsetHeight > 0;
+      if (p.offsetParent === null) return false; // Hidden by CSS
+      if (p.innerText.trim().length === 0) return false; // Empty
+      // Exclude bot thoughts/reasoning sections
+      if (p.closest('[class*="thought"], [class*="reasoning"]')) return false;
+      return true;
   });
 
-  // Fallback if no valid block elements found
+  // Fallback for div-based formatting if no <p> tags exist
   if (paragraphs.length === 0) {
-    paragraphs = Array.from(textContainer.querySelectorAll('p'));
+    paragraphs = Array.from(textContainer.querySelectorAll('div'));
+    paragraphs = paragraphs.filter(p => {
+         if (p.offsetParent === null) return false;
+         if (p.innerText.trim().length === 0) return false;
+         if (p.closest('[class*="thought"], [class*="reasoning"]')) return false;
+         // Ensure it's a leaf node (contains text, not other divs)
+         if (p.children.length > 0 && !Array.from(p.children).every(c => ['SPAN', 'B', 'I', 'EM', 'STRONG', 'A'].includes(c.tagName))) return false;
+         return true;
+    });
   }
-  
-  // Absolute fallback
+
   if (paragraphs.length === 0) {
     paragraphs = [textContainer];
   }
@@ -327,7 +350,7 @@ function getVNParagraphs() {
           initVisualNovelMode();
         }
 
-      }, 1500); // Increased wait time to ensure React finishes rendering the "thoughts" block
+      }, 1500); 
     }
   });
 
@@ -382,7 +405,6 @@ function getVNParagraphs() {
 
 // --- VISUAL NOVEL ENGINE ---
 function initVisualNovelMode() {
-  // Clear any leftover state from previous messages
   document.querySelectorAll('.vn-hidden-text').forEach(el => {
     el.classList.remove('vn-hidden-text');
     el.style.display = '';
@@ -392,7 +414,7 @@ function initVisualNovelMode() {
   if (paragraphs.length === 0) return;
 
   vnQueue = paragraphs;
-  vnCurrentIndex = 0;
+  vnCurrentIndex = 1; // Show the first paragraph
 
   paragraphs.forEach((p, idx) => {
     if (idx === 0) {
@@ -400,13 +422,9 @@ function initVisualNovelMode() {
       p.style.display = '';
     } else {
       p.classList.add("vn-hidden-text");
-      p.style.display = 'none'; // Force inline hide so React doesn't override it
+      p.style.display = 'none'; // Force hide
     }
   });
-
-  if (paragraphs.length > 0) {
-    vnCurrentIndex = 1;
-  }
 
   const vnBtn = document.getElementById("vn-continue-btn");
   if (paragraphs.length > 1) {
@@ -418,27 +436,32 @@ function initVisualNovelMode() {
 
 function advanceVNText() {
   const vnBtn = document.getElementById("vn-continue-btn");
+  // Re-query the DOM to handle React re-renders
+  const paragraphs = getVNParagraphs(); 
   
-  // Re-query the DOM to avoid stale references
-  const paragraphs = getVNParagraphs();
+  if (!paragraphs || paragraphs.length === 0) return;
 
-  if (vnCurrentIndex < paragraphs.length) {
-    const p = paragraphs[vnCurrentIndex];
-    p.classList.remove("vn-hidden-text");
-    p.style.display = ''; // Restore visibility
-    
-    // Defensive: Re-hide all paragraphs ahead of this one in case React re-rendered them
-    for (let i = vnCurrentIndex + 1; i < paragraphs.length; i++) {
-        paragraphs[i].classList.add("vn-hidden-text");
-        paragraphs[i].style.display = 'none';
+  vnCurrentIndex++;
+
+  // Enforce hiding/showing on all paragraphs up to the current index
+  paragraphs.forEach((p, idx) => {
+    if (idx < vnCurrentIndex) {
+      p.classList.remove("vn-hidden-text");
+      p.style.display = '';
+    } else {
+      p.classList.add("vn-hidden-text");
+      p.style.display = 'none';
     }
+  });
 
-    p.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    vnCurrentIndex++;
+  if (vnCurrentIndex > 0 && paragraphs[vnCurrentIndex - 1]) {
+    paragraphs[vnCurrentIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
-    if (vnCurrentIndex >= paragraphs.length) {
-      vnBtn.style.display = "none";
-    }
+  if (vnCurrentIndex >= paragraphs.length) {
+    vnBtn.style.display = "none";
+  } else {
+    vnBtn.style.display = "flex";
   }
 }
 
@@ -451,10 +474,8 @@ async function cutMessageAndSend() {
   const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
   if (!editBtn) return false;
 
-  // 1. Click Edit
   editBtn.click();
   
-  // 2. Wait for textarea to appear
   let editTextarea = null;
   for (let i = 0; i < 20; i++) {
       await new Promise(r => setTimeout(r, 100));
@@ -463,59 +484,51 @@ async function cutMessageAndSend() {
   }
   if (!editTextarea) return false;
 
-  // 3. Read the RAW text and get the current DOM paragraphs
   const rawMarkdown = editTextarea.value;
-  const currentDOMParagraphs = getVNParagraphs();
   
-  if (vnCurrentIndex === 0 || currentDOMParagraphs.length === 0) {
-      const cancelBtn = lastMsg.querySelector('button[title="Cancel"], button[aria-label="Cancel"]');
-      if (cancelBtn) cancelBtn.click();
-      return false;
-  }
-  
-  // 4. Find the EXACT text of the last paragraph the user read
-  const lastVisibleDOM = currentDOMParagraphs[vnCurrentIndex - 1];
-  const lastVisibleText = cleanForMatch(lastVisibleDOM.innerText);
-  
-  if (!lastVisibleText) {
-      const cancelBtn = lastMsg.querySelector('button[title="Cancel"], button[aria-label="Cancel"]');
-      if (cancelBtn) cancelBtn.click();
-      return false;
-  }
+  // --- NEW CUT LOGIC ---
+  // Find the exact character index where the last visible paragraph ends
+  let currentRawIndex = 0;
+  const currentDOMParagraphs = getVNParagraphs(); 
 
-  // 5. Split the raw markdown into blocks (paragraphs)
-  let textareaParagraphs = rawMarkdown.split(/\n\n+/);
-  
-  let cutIndex = -1;
-  
-  // 6. Find where that exact text lives in the raw markdown
-  for (let i = 0; i < textareaParagraphs.length; i++) {
-      const rawText = cleanForMatch(textareaParagraphs[i]);
+  for (let i = 0; i < vnCurrentIndex; i++) {
+      if (!currentDOMParagraphs[i]) continue;
       
-      if (!rawText) continue;
+      const pText = currentDOMParagraphs[i].innerText.trim();
+      if (!pText) continue;
+      
+      const cleanP = cleanForMatch(pText);
+      if (!cleanP) continue;
 
-      // If the raw block contains the text we just read, this is our cut point.
-      // We use includes() because the raw block might contain the thoughts block + the actual text.
-      if (rawText.includes(lastVisibleText) || lastVisibleText.includes(rawText)) {
-          cutIndex = i + 1;
-          break; // Stop at the first match to prevent cutting too far
+      const endIndex = findEndOfParagraph(rawMarkdown, cleanP, currentRawIndex);
+      
+      if (endIndex !== -1) {
+          currentRawIndex = endIndex;
+      } else {
+          console.warn("Could not find paragraph in raw markdown:", pText);
+          // Fallback: Find just the last word of the paragraph
+          const words = cleanP.split(' ').filter(w => w.length > 2);
+          if (words.length > 0) {
+              const lastWord = words[words.length - 1];
+              const fallbackIdx = rawMarkdown.toLowerCase().indexOf(lastWord, currentRawIndex);
+              if (fallbackIdx !== -1) {
+                  currentRawIndex = fallbackIdx + lastWord.length;
+              }
+          }
       }
   }
+
+  let visibleText = rawMarkdown.slice(0, currentRawIndex).trim();
   
-  // 7. If we couldn't find the text, abort to prevent deleting the entire message
-  if (cutIndex === -1) {
-      console.warn("Could not find visible text in raw markdown. Aborting cut to prevent data loss.");
-      const cancelBtn = lastMsg.querySelector('button[title="Cancel"], button[aria-label="Cancel"]');
-      if (cancelBtn) cancelBtn.click();
-      return false;
+  // Absolute fallback if the regex match failed completely
+  if (visibleText.length === 0) {
+      const textareaParagraphs = rawMarkdown.split(/\n\n+/);
+      visibleText = textareaParagraphs.slice(0, vnCurrentIndex).join('\n\n').trim();
   }
 
-  // 8. Slice the textarea paragraphs
-  const visibleText = textareaParagraphs.slice(0, cutIndex).join('\n\n');
+  if (visibleText.length === 0) return false;
 
-  if (visibleText.trim().length === 0) return false;
-
-  // 9. Set the value (React-safe method)
+  // Set the value (React-safe method)
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   editTextarea.focus();
   setter.call(editTextarea, visibleText);
@@ -525,7 +538,6 @@ async function cutMessageAndSend() {
 
   await new Promise(r => setTimeout(r, 500));
 
-  // 10. Click Save
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
   if (saveBtn) {
     saveBtn.click();
@@ -533,7 +545,6 @@ async function cutMessageAndSend() {
     editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   }
 
-  // 11. Wait for the textarea to disappear
   let attempts = 0;
   while (lastMsg.querySelector('textarea') && attempts < 30) {
     await new Promise(r => setTimeout(r, 100));
