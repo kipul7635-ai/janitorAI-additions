@@ -13,9 +13,8 @@ jobs:
           let audioList = [];
           if (fs.existsSync("audio")) {
             const files = fs.readdirSync("audio");
-            audioList = files
-              .filter(f => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".ogg") || f.endsWith(".m4a"))
-              .map(f => "audio/" + f);
+            // This grabs EVERY file in the folder without checking extensions
+            audioList = files.map(f => "audio/" + f);
           }
           fs.writeFileSync("assets.json", JSON.stringify({ audio: audioList }, null, 2));
           console.log("✅ Generated assets.json with " + audioList.length + " tracks.");
