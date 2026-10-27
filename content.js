@@ -10,7 +10,11 @@ let currentBackgroundPrompt = "";
 let currentMusic = "";
 let lastDecision = null; 
 let isGeneratingBg = false;
-let isAnimating = false; // Prevents scroll freezes
+let isAnimating = false;
+
+// VN Mode Variables
+let vnQueue = [];
+let vnCurrentIndex = 0;
 
 // --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
@@ -35,9 +39,7 @@ let isAnimating = false; // Prevents scroll freezes
       document.head.appendChild(link);
     }
     link.href = faviconUrl;
-  } catch (e) {
-    console.warn("Could not load tab icon:", e);
-  }
+  } catch (e) {}
 
   // --- 1. INJECT UI ---
   const uiWrapper = document.createElement("div");
@@ -91,6 +93,11 @@ let isAnimating = false; // Prevents scroll freezes
       <input type="checkbox" id="set-manual-mode" /> 
       <span style="color:#fff; font-size:13px;">Enable Manual Mode</span>
     </label>
+    
+    <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
+      <input type="checkbox" id="set-vn-mode" /> 
+      <span style="color:#fff; font-size:13px;">Visual Novel Text Mode</span>
+    </label>
 
     <div id="manual-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 10px;">
       <label>Audio</label>
@@ -142,6 +149,13 @@ let isAnimating = false; // Prevents scroll freezes
   fieryOverlay.id = "ambient-fiery-overlay";
   document.body.appendChild(fieryOverlay);
 
+  // VN Continue Button
+  const vnBtn = document.createElement("button");
+  vnBtn.id = "vn-continue-btn";
+  vnBtn.innerHTML = "▼";
+  vnBtn.addEventListener("click", advanceVNText);
+  document.body.appendChild(vnBtn);
+
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
@@ -167,6 +181,9 @@ let isAnimating = false; // Prevents scroll freezes
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
   document.getElementById("manual-controls").style.display = manualCheckbox.checked ? "flex" : "none";
 
+  const vnCheckbox = document.getElementById("set-vn-mode");
+  vnCheckbox.checked = localStorage.getItem("ambient_vn_mode") === "true";
+
   // --- 4. EVENT LISTENERS ---
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
@@ -186,6 +203,10 @@ let isAnimating = false; // Prevents scroll freezes
     const isManual = e.target.checked;
     localStorage.setItem("ambient_manual_mode", isManual);
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
+  });
+
+  vnCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_vn_mode", e.target.checked);
   });
 
   document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
@@ -225,7 +246,6 @@ let isAnimating = false; // Prevents scroll freezes
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
-    // Initial image generation is removed. It will wait for the AI.
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
@@ -238,16 +258,81 @@ let isAnimating = false; // Prevents scroll freezes
       clearTimeout(networkDebounce);
       
       networkDebounce = setTimeout(() => {
-        console.log("⚡ Bot message saved. Scraping finalized chat...");
+        console.log("⚡ Bot message saved.");
+        
         let currentText = getLatestChatContext();
         if (currentText) {
           const apiKey = localStorage.getItem("ambient_api_key");
           if (apiKey) askAI(currentText, cachedAudio, apiKey);
         }
+
+        // Trigger VN Mode if enabled
+        if (localStorage.getItem("ambient_vn_mode") === "true") {
+          initVisualNovelMode();
+        }
+
       }, 1000); 
     }
   });
 })();
+
+// --- VISUAL NOVEL ENGINE ---
+function initVisualNovelMode() {
+  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  if (messages.length === 0) return;
+  
+  // Get the latest message (the one the bot just sent)
+  const latestMsg = messages[messages.length - 1];
+  const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
+  if (!textContainer) return;
+
+  // Grab all paragraphs (Janitor splits text into <p> tags)
+  // If there are no <p> tags, fall back to splitting by newlines
+  let paragraphs = Array.from(textContainer.querySelectorAll('p'));
+  
+  if (paragraphs.length === 0) {
+    // Fallback: just use the whole block as one chunk
+    paragraphs = [textContainer];
+  }
+
+  vnQueue = paragraphs;
+  vnCurrentIndex = 0;
+
+  // Hide all paragraphs initially
+  vnQueue.forEach(p => p.classList.add("vn-hidden-text"));
+
+  // Show the first paragraph
+  if (vnQueue.length > 0) {
+    vnQueue[0].classList.remove("vn-hidden-text");
+    vnCurrentIndex = 1;
+  }
+
+  // Show the continue button if there is more than one paragraph
+  const vnBtn = document.getElementById("vn-continue-btn");
+  if (vnQueue.length > 1) {
+    vnBtn.style.display = "flex";
+  } else {
+    vnBtn.style.display = "none";
+  }
+}
+
+function advanceVNText() {
+  const vnBtn = document.getElementById("vn-continue-btn");
+  
+  if (vnCurrentIndex < vnQueue.length) {
+    // Reveal the next paragraph
+    vnQueue[vnCurrentIndex].classList.remove("vn-hidden-text");
+    vnCurrentIndex++;
+    
+    // Smooth scroll to keep the new text in view
+    vnQueue[vnCurrentIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // If we just revealed the last paragraph, hide the button
+    if (vnCurrentIndex >= vnQueue.length) {
+      vnBtn.style.display = "none";
+    }
+  }
+}
 
 // --- HELPER: Dot State Logic ---
 function setDotState(dotId, state) {
@@ -489,14 +574,13 @@ function crossfadeAudio(newUrl) {
   }, 50);
 }
 
-// --- WEATHER ENGINE (Improved Particles & Scroll Freeze Fix) ---
+// --- WEATHER ENGINE ---
 function setWeather(effect) {
   currentEffect = effect;
   console.log("Setting Weather:", effect);
   
   canvas.style.opacity = 0;
   
-  // Stop the current animation loop safely
   isAnimating = false;
   if (animationId) cancelAnimationFrame(animationId);
 
@@ -650,7 +734,7 @@ class Particle {
 }
 
 function animateWeather() {
-  if (!isAnimating) return; // Stops the loop if we switched effects
+  if (!isAnimating) return; 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   particles.forEach(p => { p.update(); p.draw(); });
   animationId = requestAnimationFrame(animateWeather);
