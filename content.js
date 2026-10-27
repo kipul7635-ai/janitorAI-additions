@@ -15,6 +15,7 @@ let isAnimating = false;
 // VN Mode Variables
 let vnQueue = [];
 let vnCurrentIndex = 0;
+let isCuttingMessage = false;
 
 // --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
@@ -266,7 +267,6 @@ let vnCurrentIndex = 0;
           if (apiKey) askAI(currentText, cachedAudio, apiKey);
         }
 
-        // Trigger VN Mode if enabled
         if (localStorage.getItem("ambient_vn_mode") === "true") {
           initVisualNovelMode();
         }
@@ -274,6 +274,68 @@ let vnCurrentIndex = 0;
       }, 1000); 
     }
   });
+
+  // --- 7. INTERCEPT SEND (Visual Novel Cut) ---
+  const handleIntercept = async (e) => {
+    if (isCuttingMessage) return;
+    if (localStorage.getItem("ambient_vn_mode") !== "true") return;
+
+    const hidden = document.querySelectorAll('.vn-hidden-text');
+    if (hidden.length === 0) return;
+
+    // Stop the send
+    e.preventDefault();
+    e.stopPropagation();
+    isCuttingMessage = true;
+
+    console.log("✂️ Cutting unseen text before sending...");
+
+    // Show a visual cue on the send button if we can find it
+    const sendBtn = document.querySelector('button[aria-label="Send"]');
+    const originalHTML = sendBtn ? sendBtn.innerHTML : null;
+    if (sendBtn) {
+      sendBtn.innerHTML = "⏳";
+      sendBtn.disabled = true;
+    }
+
+    const success = await cutMessageAndSend();
+
+    // Restore button
+    if (sendBtn) {
+      sendBtn.innerHTML = originalHTML;
+      sendBtn.disabled = false;
+    }
+
+    isCuttingMessage = false;
+
+    if (success) {
+      // Re-trigger the send
+      if (sendBtn) {
+        sendBtn.click();
+      } else {
+        // If triggered by Enter, try to find the send button or manually dispatch
+        document.querySelector('button[aria-label="Send"]').click();
+      }
+    } else {
+      // Fallback: just reveal everything
+      hidden.forEach(h => h.classList.remove('vn-hidden-text'));
+      document.getElementById('vn-continue-btn').style.display = 'none';
+    }
+  };
+
+  // Capture clicks on the Send button
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('button[aria-label="Send"]')) {
+      handleIntercept(e);
+    }
+  }, true);
+
+  // Capture the Enter key in the chat textarea
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('_chatTextarea_1e2lg_1')) {
+      handleIntercept(e);
+    }
+  }, true);
 })();
 
 // --- VISUAL NOVEL ENGINE ---
@@ -281,33 +343,26 @@ function initVisualNovelMode() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return;
   
-  // Get the latest message (the one the bot just sent)
   const latestMsg = messages[messages.length - 1];
   const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
   if (!textContainer) return;
 
-  // Grab all paragraphs (Janitor splits text into <p> tags)
-  // If there are no <p> tags, fall back to splitting by newlines
   let paragraphs = Array.from(textContainer.querySelectorAll('p'));
   
   if (paragraphs.length === 0) {
-    // Fallback: just use the whole block as one chunk
     paragraphs = [textContainer];
   }
 
   vnQueue = paragraphs;
   vnCurrentIndex = 0;
 
-  // Hide all paragraphs initially
   vnQueue.forEach(p => p.classList.add("vn-hidden-text"));
 
-  // Show the first paragraph
   if (vnQueue.length > 0) {
     vnQueue[0].classList.remove("vn-hidden-text");
     vnCurrentIndex = 1;
   }
 
-  // Show the continue button if there is more than one paragraph
   const vnBtn = document.getElementById("vn-continue-btn");
   if (vnQueue.length > 1) {
     vnBtn.style.display = "flex";
@@ -320,18 +375,59 @@ function advanceVNText() {
   const vnBtn = document.getElementById("vn-continue-btn");
   
   if (vnCurrentIndex < vnQueue.length) {
-    // Reveal the next paragraph
     vnQueue[vnCurrentIndex].classList.remove("vn-hidden-text");
     vnCurrentIndex++;
     
-    // Smooth scroll to keep the new text in view
     vnQueue[vnCurrentIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-    // If we just revealed the last paragraph, hide the button
     if (vnCurrentIndex >= vnQueue.length) {
       vnBtn.style.display = "none";
     }
   }
+}
+
+// --- CUT MESSAGE LOGIC ---
+async function cutMessageAndSend() {
+  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  if (messages.length === 0) return false;
+  const lastMsg = messages[messages.length - 1];
+  
+  const paragraphs = Array.from(lastMsg.querySelectorAll('p'));
+  const visibleText = paragraphs
+    .filter(p => !p.classList.contains('vn-hidden-text'))
+    .map(p => p.innerText)
+    .join('\n\n');
+
+  // Find the edit button
+  const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
+  if (!editBtn) return false;
+
+  editBtn.click();
+  
+  // Wait for the textarea to appear
+  await new Promise(r => setTimeout(r, 300));
+  
+  const editTextarea = lastMsg.querySelector('textarea');
+  if (!editTextarea) return false;
+
+  // Set the value (React compatible)
+  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  nativeInputValueSetter.call(editTextarea, visibleText);
+  editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+  await new Promise(r => setTimeout(r, 100));
+
+  // Find save button
+  const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
+  if (saveBtn) {
+    saveBtn.click();
+  } else {
+    editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  }
+
+  // Wait for the save network request to finish
+  await new Promise(r => setTimeout(r, 800));
+  return true;
 }
 
 // --- HELPER: Dot State Logic ---
