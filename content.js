@@ -1,3 +1,8 @@
+(function ambientEngineMain() {
+// Guard: the background script may inject this file again after in-site (SPA) navigation.
+if (window.__ambientEngineLoaded) return;
+window.__ambientEngineLoaded = true;
+
 let cachedAudio = [];
 
 // Weather Engine Variables
@@ -12,77 +17,191 @@ let lastDecision = null;
 let isGeneratingBg = false;
 let isAnimating = false;
 
-// VN Mode Variables
-let vnQueue = [];
-let vnCurrentIndex = 0;
+// ===== VN: STATE =====
+const vn = {
+  active: false,     // a bot message is currently being revealed paragraph by paragraph
+  pending: false,    // bot message was just saved, waiting for it to be present in the DOM
+  pendingSince: 0,
+  startedAt: 0,
+  msgEl: null,       // the <li> of the message being revealed
+  text: "",          // text signature of that message (detects swipes / re-mounts)
+  revealed: 1,       // how many paragraphs are currently visible
+  total: 0,
+  ignoreSignalsUntil: 0
+};
 let isCuttingMessage = false;
+let vnBypass = false;        // lets our own auto-send click through the interceptor
+let vnObserver = null;
+let vnSyncQueued = false;
+const VN_OBS_OPTS = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] };
 
-// --- HELPER: Clean text for matching (strips markdown & HTML) ---
-function cleanForMatch(str) {
-  if (!str) return "";
-  return str.replace(/<[^>]*>?/gm, '') // Strip HTML tags
-            .replace(/[*_#>`~]/g, '') // Strip markdown formatting
-            .replace(/\s+/g, ' ')     // Normalize whitespace
-            .trim()
-            .toLowerCase();
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const vnEnabled = () => localStorage.getItem("ambient_vn_mode") === "true";
+const vnAutoSend = () => localStorage.getItem("ambient_vn_autosend") !== "false"; // default ON
+const isChatPage = () => location.pathname.startsWith("/chats/");
+function vnLog(...args) {
+  if (localStorage.getItem("ambient_vn_debug") === "true") console.log("%c[VN]", "color:#a855f7;font-weight:bold", ...args);
 }
 
-// --- HELPER: Find exact end of a paragraph in raw markdown, ignoring formatting ---
-function findEndOfParagraph(rawMarkdown, cleanParagraphText, startSearchIndex) {
-    // Create a regex that allows markdown characters to exist between any letters
-    let regexStr = cleanParagraphText.split('').map(c => {
-        let escaped = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape special regex chars
-        if (c === ' ') return '\\s+'; // Match any amount of whitespace
-        return `[*_#>\`~]*${escaped}[*_#>\`~]*`; // Allow markdown chars around the letter
-    }).join('');
-    
-    let regex = new RegExp(regexStr, 'gi');
-    regex.lastIndex = startSearchIndex;
-    let match = regex.exec(rawMarkdown);
-    
-    if (match) {
-        return match.index + match[0].length; // Return the exact character index in the raw string
+// <pure-cut-logic>
+// ===== VN: PURE TEXT LOGIC (no DOM access, unit-tested) =====
+const ALNUM = /[\p{L}\p{N}]/u;
+
+// Letters+digits only, lowercased. Markdown, punctuation, whitespace and quotes all vanish,
+// so rendered text and raw markdown can be compared without caring how either is formatted.
+function normText(str) {
+  let out = "";
+  for (const ch of (str || "")) if (ALNUM.test(ch)) out += ch.toLowerCase();
+  return out;
+}
+
+// Same normalisation for the raw markdown, but also remembers where every kept char lived in the
+// raw string, and skips HTML tags and {{macros}} (which never show up as-is in the rendered DOM).
+function buildRawIndex(raw, names) {
+  names = names || {};
+  let norm = "";
+  const map = [];
+  const macro = /\{\{\s*(user|char|bot)\s*\}\}|<\s*(user|char|bot)\s*>/iy;
+  const tag = /<\/?[a-zA-Z][^>\n]{0,200}>|\{\{[^}\n]{0,80}\}\}/y;
+  let i = 0;
+  while (i < raw.length) {
+    const ch = String.fromCodePoint(raw.codePointAt(i));
+    if (ch === "<" || ch === "{") {
+      macro.lastIndex = i;
+      let m = macro.exec(raw);
+      if (m) {
+        // {{user}} / {{char}} are rendered as real names -> substitute them so paragraphs match exactly
+        const key = (m[1] || m[2]).toLowerCase();
+        const name = key === "user" ? names.user : names.char;
+        const end = i + m[0].length;
+        if (name) for (const c of normText(name)) { norm += c; map.push(end - 1); }
+        i = end;
+        continue;
+      }
+      tag.lastIndex = i;
+      m = tag.exec(raw);
+      if (m) { i += m[0].length; continue; }          // HTML tags / other {{macros}} never show up as-is
     }
-    return -1;
+    if (ALNUM.test(ch)) {
+      const low = ch.toLowerCase();
+      for (let k = 0; k < low.length; k++) { norm += low[k]; map.push(i + ch.length - 1); }
+    }
+    i += ch.length;
+  }
+  return { norm, map };
 }
 
-// --- HELPER: Get current VN paragraphs (filters out hidden thoughts) ---
-function getVNParagraphs() {
-  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
-  if (messages.length === 0) return [];
-  const latestMsg = messages[messages.length - 1];
-  const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
-  if (!textContainer) return [];
-
-  let paragraphs = Array.from(textContainer.querySelectorAll('p, li, blockquote'));
-  
-  // Filter to only visible paragraphs, and exclude "thoughts" blocks
-  paragraphs = paragraphs.filter(p => {
-      if (p.offsetParent === null) return false; // Hidden by CSS
-      if (p.innerText.trim().length === 0) return false; // Empty
-      // Exclude bot thoughts/reasoning sections
-      if (p.closest('[class*="thought"], [class*="reasoning"]')) return false;
-      return true;
-  });
-
-  // Fallback for div-based formatting if no <p> tags exist
-  if (paragraphs.length === 0) {
-    paragraphs = Array.from(textContainer.querySelectorAll('div'));
-    paragraphs = paragraphs.filter(p => {
-         if (p.offsetParent === null) return false;
-         if (p.innerText.trim().length === 0) return false;
-         if (p.closest('[class*="thought"], [class*="reasoning"]')) return false;
-         // Ensure it's a leaf node (contains text, not other divs)
-         if (p.children.length > 0 && !Array.from(p.children).every(c => ['SPAN', 'B', 'I', 'EM', 'STRONG', 'A'].includes(c.tagName))) return false;
-         return true;
-    });
+// Where does this rendered paragraph end inside the normalised raw text? (-1 = can't tell)
+function locateBlockEnd(rawNorm, n, cursor) {
+  if (!n) return cursor;                               // paragraph with no letters at all ("***", "—")
+  let i = rawNorm.indexOf(n, cursor);
+  if (i !== -1) return i + n.length;                   // exact match
+  const A = 24;
+  if (n.length > A) {
+    i = rawNorm.indexOf(n.slice(-A), cursor);          // tail anchor (e.g. a {{user}} earlier in the paragraph)
+    if (i !== -1) return i + A;
+    for (const d of [3, 6, 10, 16]) {                  // {{user}} right at the end: skip back past the name
+      const stop = n.length - d;
+      if (stop < A) break;
+      i = rawNorm.indexOf(n.slice(stop - A, stop), cursor);
+      if (i !== -1) return i + A;                      // lands inside the paragraph's last line; caller snaps to line end
+    }
   }
+  return -1;
+}
 
-  if (paragraphs.length === 0) {
-    paragraphs = [textContainer];
+// Plan B: split the raw text on blank lines. Only trusted when the chunk count equals the number
+// of rendered paragraphs, because then the two are certainly aligned.
+function structuralCut(raw, visibleCount, totalBlocks) {
+  const seps = [];
+  const re = /\r?\n[ \t]*\r?\n/g;
+  let m;
+  while ((m = re.exec(raw))) seps.push(m.index);
+  if (seps.length + 1 !== totalBlocks) return -1;
+  return visibleCount >= 1 && visibleCount <= seps.length ? seps[visibleCount - 1] : -1;
+}
+
+// Returns the raw-string index to cut at (everything after it is dropped), or -1 if unsure.
+function computeCutIndex(raw, visibleTexts, totalBlocks, names) {
+  const { norm, map } = buildRawIndex(raw, names);
+  let cursor = 0, ok = true;
+  for (const t of visibleTexts) {
+    const end = locateBlockEnd(norm, normText(t), cursor);
+    if (end === -1) { ok = false; break; }
+    cursor = end;
   }
-  
-  return paragraphs;
+  if (ok && cursor > 0 && cursor <= map.length) {
+    const lastChar = map[cursor - 1] + 1;              // just after the last visible letter
+    const nl = raw.indexOf("\n", lastChar);            // keep closing * " ) etc. -> finish the line
+    return nl === -1 ? raw.length : nl;
+  }
+  return structuralCut(raw, visibleTexts.length, totalBlocks);
+}
+// </pure-cut-logic>
+
+// ===== VN: DOM HELPERS =====
+const VN_BLOCK_SEL = "p, li, h1, h2, h3, h4, h5, h6, pre, blockquote";
+const isThoughtEl = (el) => !!el.closest('[class*="thought"], [class*="reasoning"]');
+
+function getMessageItems() {
+  return Array.from(document.querySelectorAll('li[class*="messageDisplayWrapper"]'));
+}
+
+function getTextContainer(li) {
+  return li.querySelector(".css-7w4zgl") || li.querySelector('[class*="messageBody"]');
+}
+
+// The paragraphs of a message, in order. Innermost blocks only (so a <p> inside a <blockquote> or
+// <li> is counted once), hidden ones INCLUDED (the old code dropped them, which broke the button).
+function getVNBlocks(li) {
+  const container = li && getTextContainer(li);
+  if (!container) return [];
+  let blocks = Array.from(container.querySelectorAll(VN_BLOCK_SEL)).filter(el => !isThoughtEl(el));
+  blocks = blocks.filter(el => !blocks.some(o => o !== el && el.contains(o)));
+  blocks = blocks.filter(el => el.textContent.trim().length > 0);
+  if (blocks.length === 0) {
+    const kids = Array.from(container.children).filter(el => el.textContent.trim() && !isThoughtEl(el));
+    blocks = kids.length > 1 ? kids : [container];
+  }
+  return blocks;
+}
+
+// {{char}} = name on the bot's message header, {{user}} = the other name in the chat (if any user message exists)
+function getChatNames(li) {
+  const nameOf = (el) => { const n = el.querySelector('[class*="nameText"]'); return n ? n.textContent.trim() : ""; };
+  const char = li ? nameOf(li) : "";
+  let user = "";
+  for (const it of getMessageItems()) { const n = nameOf(it); if (n && n !== char) { user = n; break; } }
+  return { char, user };
+}
+
+const fullText = (blocks) => blocks.map(b => b.textContent.trim()).join("\n");
+function sameStart(a, b) {
+  const n = Math.min(30, a.length, b.length);
+  return a.slice(0, n) === b.slice(0, n);
+}
+
+function findButton(root, label) {
+  if (!root) return null;
+  const exact = root.querySelector(
+    `button[title="${label}" i], button[aria-label="${label}" i], [role="button"][aria-label="${label}" i]`
+  );
+  if (exact) return exact;
+  const l = label.toLowerCase();
+  return Array.from(root.querySelectorAll('button, [role="button"]')).find(b =>
+    ((b.getAttribute("title") || "") + " " + (b.getAttribute("aria-label") || "") + " " + (b.textContent || ""))
+      .toLowerCase().includes(l)
+  ) || null;
+}
+
+function showVnToast(text, isError) {
+  const t = document.getElementById("vn-toast");
+  if (!t) return;
+  t.textContent = text;
+  t.style.background = isError ? "#ef4444" : "#22c55e";
+  t.style.display = "block";
+  clearTimeout(showVnToast._t);
+  showVnToast._t = setTimeout(() => { t.style.display = "none"; }, 4000);
 }
 
 // --- 0. FETCH AUDIO ASSETS EARLY ---
@@ -166,6 +285,11 @@ function getVNParagraphs() {
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
       <input type="checkbox" id="set-vn-mode" /> 
       <span style="color:#fff; font-size:13px;">Visual Novel Text Mode</span>
+    </label>
+
+    <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
+      <input type="checkbox" id="set-vn-autosend" /> 
+      <span style="color:#fff; font-size:13px;">VN: auto-send right after a cut</span>
     </label>
 
     <div id="manual-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 10px;">
@@ -264,6 +388,9 @@ function getVNParagraphs() {
   const vnCheckbox = document.getElementById("set-vn-mode");
   vnCheckbox.checked = localStorage.getItem("ambient_vn_mode") === "true";
 
+  const vnAutoSendCheckbox = document.getElementById("set-vn-autosend");
+  vnAutoSendCheckbox.checked = vnAutoSend();
+
   // --- 4. EVENT LISTENERS ---
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
@@ -287,6 +414,11 @@ function getVNParagraphs() {
 
   vnCheckbox.addEventListener("change", (e) => {
     localStorage.setItem("ambient_vn_mode", e.target.checked);
+    if (!e.target.checked) vnReset();   // switching it off un-hides everything straight away
+  });
+
+  vnAutoSendCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_vn_autosend", e.target.checked);
   });
 
   document.getElementById("manual-audio").addEventListener("change", (e) => applyAmbience({ music: e.target.value }));
@@ -331,230 +463,278 @@ function getVNParagraphs() {
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
   let networkDebounce = null;
 
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "chat_updated") {
-      if (localStorage.getItem("ambient_manual_mode") === "true") return;
+  chrome.runtime.onMessage.addListener((request) => {
+    if (request.action !== "chat_updated") return;
+    if (!isChatPage() || isCuttingMessage || Date.now() < vn.ignoreSignalsUntil) return;
 
-      clearTimeout(networkDebounce);
-      
-      networkDebounce = setTimeout(() => {
-        console.log("⚡ Bot message saved.");
-        
-        let currentText = getLatestChatContext();
-        if (currentText) {
-          const apiKey = localStorage.getItem("ambient_api_key");
-          if (apiKey) askAI(currentText, cachedAudio, apiKey);
-        }
-
-        if (localStorage.getItem("ambient_vn_mode") === "true") {
-          initVisualNovelMode();
-        }
-
-      }, 1500); 
+    // Visual novel mode: a bot message was just saved -> start revealing it paragraph by paragraph.
+    // (Manual mode used to return before reaching this, which silently disabled VN mode.)
+    if (vnEnabled()) {
+      vn.pending = true;
+      vn.pendingSince = Date.now();
+      vnLog("bot message saved, waiting for it to appear in the page");
+      queueVNSync();
     }
+
+    // Ambient engine (not in manual mode)
+    if (localStorage.getItem("ambient_manual_mode") === "true") return;
+    clearTimeout(networkDebounce);
+    networkDebounce = setTimeout(() => {
+      console.log("⚡ Bot message saved.");
+      const currentText = getLatestChatContext();
+      if (currentText) {
+        const apiKey = localStorage.getItem("ambient_api_key");
+        if (apiKey) askAI(currentText, cachedAudio, apiKey);
+      }
+    }, 1500);
   });
 
-  // --- 7. INTERCEPT SEND (Safe Cut) ---
-  const handleIntercept = async (e) => {
-    if (isCuttingMessage) return;
-    if (localStorage.getItem("ambient_vn_mode") !== "true") return;
-
-    const hidden = document.querySelectorAll('.vn-hidden-text');
-    if (hidden.length === 0) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    isCuttingMessage = true;
-
-    console.log("✂️ Intercepted send. Cutting unseen text...");
-
-    const success = await cutMessageAndSend();
-
-    await new Promise(r => setTimeout(r, 1500));
-
-    isCuttingMessage = false;
-
-    if (success) {
-      const toast = document.getElementById('vn-toast');
-      if (toast) {
-        toast.style.display = 'block';
-        setTimeout(() => { toast.style.display = 'none'; }, 4000);
-      }
-    } else {
-      document.querySelectorAll('.vn-hidden-text').forEach(el => {
-        el.classList.remove('vn-hidden-text');
-        el.style.display = '';
-      });
-      const btn = document.getElementById('vn-continue-btn');
-      if (btn) btn.style.display = 'none';
-    }
-  };
-
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('button[aria-label="Send"]')) {
-      handleIntercept(e);
-    }
+  // --- 7. INTERCEPT SEND (cut the message at the last paragraph you read) ---
+  document.addEventListener("click", (e) => {
+    if (!e.isTrusted) return;
+    if (e.target.closest && e.target.closest('button[aria-label="Send" i], button[title="Send" i]')) handleIntercept(e);
   }, true);
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('_chatTextarea_1e2lg_1')) {
-      handleIntercept(e);
-    }
+  document.addEventListener("keydown", (e) => {
+    if (!e.isTrusted || e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+    const t = e.target;
+    // The main chat box only (the old code matched a hashed class name that changes on every Janitor deploy)
+    if (t && t.tagName === "TEXTAREA" && !t.closest("li")) handleIntercept(e);
   }, true);
+
+  startVNObserver();
 })();
 
-// --- VISUAL NOVEL ENGINE ---
-function initVisualNovelMode() {
-  document.querySelectorAll('.vn-hidden-text').forEach(el => {
-    el.classList.remove('vn-hidden-text');
-    el.style.display = '';
-  });
+// ===== VISUAL NOVEL ENGINE =====
 
-  const paragraphs = getVNParagraphs();
-  if (paragraphs.length === 0) return;
+// Run DOM changes without our own MutationObserver reacting to them.
+function vnMutate(fn) {
+  if (vnObserver) vnObserver.disconnect();
+  try { fn(); } finally { if (vnObserver) vnObserver.observe(document.body, VN_OBS_OPTS); }
+}
 
-  vnQueue = paragraphs;
-  vnCurrentIndex = 1; // Show the first paragraph
+function queueVNSync() {
+  if (vnSyncQueued) return;
+  vnSyncQueued = true;
+  requestAnimationFrame(vnSync);
+}
 
-  paragraphs.forEach((p, idx) => {
-    if (idx === 0) {
-      p.classList.remove("vn-hidden-text");
-      p.style.display = '';
-    } else {
-      p.classList.add("vn-hidden-text");
-      p.style.display = 'none'; // Force hide
-    }
-  });
+function startVNObserver() {
+  vnObserver = new MutationObserver(queueVNSync);   // React re-renders / streaming / swipes all land here
+  vnObserver.observe(document.body, VN_OBS_OPTS);
+  setInterval(queueVNSync, 1000);                   // safety net (also catches SPA navigation)
+}
 
-  const vnBtn = document.getElementById("vn-continue-btn");
-  if (paragraphs.length > 1) {
-    vnBtn.style.display = "flex";
-  } else {
-    vnBtn.style.display = "none";
+function clearHidden() {
+  document.querySelectorAll(".vn-hidden-text").forEach(el => el.classList.remove("vn-hidden-text"));
+}
+
+function vnReset() {
+  vn.active = false;
+  vn.pending = false;
+  vn.msgEl = null;
+  vn.total = 0;
+  if (document.querySelector(".vn-hidden-text")) vnMutate(clearHidden);
+  const btn = document.getElementById("vn-continue-btn");
+  if (btn) btn.style.display = "none";
+}
+
+// The message being revealed: the remembered <li> if it is still on the page, otherwise (React
+// re-mounted it / the list was virtualised away and back) the last <li> if its text matches.
+function findVNMessage(items) {
+  if (vn.msgEl && vn.msgEl.isConnected) return vn.msgEl;
+  const last = items[items.length - 1];
+  if (last && vn.text) {
+    const t = fullText(getVNBlocks(last));
+    if (t && sameStart(t, vn.text)) return last;
   }
+  return null;
+}
+
+// Show paragraphs [0, vn.revealed), hide the rest. Safe to call as often as we like.
+function applyVN(blocks) {
+  const btn = document.getElementById("vn-continue-btn");
+  vn.total = blocks.length;
+  if (!blocks.length) { if (btn) btn.style.display = "none"; return; }
+  if (vn.revealed > blocks.length) vn.revealed = blocks.length;
+  if (vn.revealed < 1) vn.revealed = 1;
+
+  vnMutate(() => {
+    const live = new Set(blocks);
+    document.querySelectorAll(".vn-hidden-text").forEach(el => { if (!live.has(el)) el.classList.remove("vn-hidden-text"); });
+    blocks.forEach((b, i) => b.classList.toggle("vn-hidden-text", i >= vn.revealed));
+  });
+  if (btn) btn.style.display = vn.revealed < blocks.length ? "flex" : "none";
+}
+
+// Called (throttled) on every DOM change. Starts a reveal when a bot message was just saved, and
+// keeps the hidden/visible state correct if React redraws the message underneath us.
+function vnSync() {
+  vnSyncQueued = false;
+  if (isCuttingMessage) return;
+  const btn = document.getElementById("vn-continue-btn");
+  if (!btn) return;
+
+  if (!vnEnabled() || !isChatPage()) { if (vn.active || vn.pending) vnReset(); return; }
+  if (!vn.active && !vn.pending) return;
+
+  const items = getMessageItems();
+
+  if (vn.pending) {
+    if (Date.now() - vn.pendingSince > 15000) { vn.pending = false; vnLog("gave up waiting for the new message"); return; }
+    const last = items[items.length - 1];
+    const blocks = last ? getVNBlocks(last) : [];
+    if (!blocks.length) return;                       // not rendered yet - the observer will call us again
+    vn.pending = false;
+    vn.active = true;
+    vn.msgEl = last;
+    vn.revealed = 1;
+    vn.startedAt = Date.now();
+    vn.text = fullText(blocks);
+    vnLog("started:", blocks.length, "paragraphs");
+    applyVN(blocks);
+    return;
+  }
+
+  let li = findVNMessage(items);
+  if (!li) { btn.style.display = "none"; return; }    // message scrolled out of the list; state is kept
+
+  // We started on the user's own message because the bot's one wasn't in the DOM yet -> retry.
+  if (Date.now() - vn.startedAt < 4000 && li === vn.msgEl && items[items.length - 1] !== li) {
+    vnLog("a newer message showed up right after start, retrying");
+    vnReset();
+    vn.pending = true; vn.pendingSince = Date.now();
+    queueVNSync();
+    return;
+  }
+
+  vn.msgEl = li;
+  const blocks = getVNBlocks(li);
+  const t = fullText(blocks);
+  if (!sameStart(t, vn.text)) { vn.revealed = 1; vnLog("message text was replaced (swipe/regenerate) -> restarting"); }
+  vn.text = t;
+  applyVN(blocks);
 }
 
 function advanceVNText() {
-  const vnBtn = document.getElementById("vn-continue-btn");
-  // Re-query the DOM to handle React re-renders
-  const paragraphs = getVNParagraphs(); 
-  
-  if (!paragraphs || paragraphs.length === 0) return;
-
-  vnCurrentIndex++;
-
-  // Enforce hiding/showing on all paragraphs up to the current index
-  paragraphs.forEach((p, idx) => {
-    if (idx < vnCurrentIndex) {
-      p.classList.remove("vn-hidden-text");
-      p.style.display = '';
-    } else {
-      p.classList.add("vn-hidden-text");
-      p.style.display = 'none';
-    }
-  });
-
-  if (vnCurrentIndex > 0 && paragraphs[vnCurrentIndex - 1]) {
-    paragraphs[vnCurrentIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  if (vnCurrentIndex >= paragraphs.length) {
-    vnBtn.style.display = "none";
-  } else {
-    vnBtn.style.display = "flex";
-  }
+  if (!vn.active) return;
+  const li = findVNMessage(getMessageItems());
+  if (!li) return;
+  const blocks = getVNBlocks(li);              // includes hidden paragraphs, so this can actually reveal them
+  vn.revealed = Math.min(vn.revealed + 1, blocks.length);
+  applyVN(blocks);
+  const shown = blocks[vn.revealed - 1];
+  if (shown) shown.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-// --- SAFE CUT MESSAGE LOGIC (Markdown Preserved) ---
-async function cutMessageAndSend() {
-  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
-  if (messages.length === 0) return false;
-  const lastMsg = messages[messages.length - 1];
-  
-  const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
-  if (!editBtn) return false;
+// ===== CUT THE MESSAGE WHEN THE USER SENDS EARLY =====
+async function cancelEdit(li) {
+  const cancel = findButton(li, "cancel");
+  if (cancel) cancel.click();
+  else {
+    const ta = li && li.querySelector("textarea");
+    if (ta) ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+  }
+  await sleep(300);
+}
 
+// Returns { ok, reason?, unchanged? }. Never leaves the message stuck in edit mode.
+async function cutMessage(li, blocks) {
+  const visibleTexts = blocks.slice(0, vn.revealed).map(b => b.textContent);
+  const total = blocks.length;
+  const names = getChatNames(li);
+  const cur = () => (li.isConnected ? li : (getMessageItems().pop() || null));
+
+  const editBtn = findButton(li, "edit");
+  if (!editBtn) return { ok: false, reason: "couldn't find the Edit button" };
   editBtn.click();
-  
-  let editTextarea = null;
-  for (let i = 0; i < 20; i++) {
-      await new Promise(r => setTimeout(r, 100));
-      editTextarea = lastMsg.querySelector('textarea');
-      if (editTextarea) break;
+
+  let ta = null;
+  for (let i = 0; i < 30 && !ta; i++) {
+    await sleep(100);
+    const c = cur();
+    ta = c && c.querySelector("textarea");
   }
-  if (!editTextarea) return false;
+  if (!ta) return { ok: false, reason: "the edit box never opened" };
 
-  const rawMarkdown = editTextarea.value;
-  
-  // --- NEW CUT LOGIC ---
-  // Find the exact character index where the last visible paragraph ends
-  let currentRawIndex = 0;
-  const currentDOMParagraphs = getVNParagraphs(); 
+  const raw = ta.value;
+  const cutIdx = computeCutIndex(raw, visibleTexts, total, names);
+  vnLog("cut index", cutIdx, "of", raw.length, "| revealed", visibleTexts.length, "of", total);
 
-  for (let i = 0; i < vnCurrentIndex; i++) {
-      if (!currentDOMParagraphs[i]) continue;
-      
-      const pText = currentDOMParagraphs[i].innerText.trim();
-      if (!pText) continue;
-      
-      const cleanP = cleanForMatch(pText);
-      if (!cleanP) continue;
-
-      const endIndex = findEndOfParagraph(rawMarkdown, cleanP, currentRawIndex);
-      
-      if (endIndex !== -1) {
-          currentRawIndex = endIndex;
-      } else {
-          console.warn("Could not find paragraph in raw markdown:", pText);
-          // Fallback: Find just the last word of the paragraph
-          const words = cleanP.split(' ').filter(w => w.length > 2);
-          if (words.length > 0) {
-              const lastWord = words[words.length - 1];
-              const fallbackIdx = rawMarkdown.toLowerCase().indexOf(lastWord, currentRawIndex);
-              if (fallbackIdx !== -1) {
-                  currentRawIndex = fallbackIdx + lastWord.length;
-              }
-          }
-      }
+  if (cutIdx < 1) {
+    await cancelEdit(cur());
+    return { ok: false, reason: "couldn't match what you read to the message source, left it untouched" };
   }
+  const newText = raw.slice(0, cutIdx).trimEnd();
+  if (!newText) { await cancelEdit(cur()); return { ok: false, reason: "cut would have been empty" }; }
+  if (newText.length >= raw.trimEnd().length) { await cancelEdit(cur()); return { ok: true, unchanged: true }; }
 
-  let visibleText = rawMarkdown.slice(0, currentRawIndex).trim();
-  
-  // Absolute fallback if the regex match failed completely
-  if (visibleText.length === 0) {
-      const textareaParagraphs = rawMarkdown.split(/\n\n+/);
-      visibleText = textareaParagraphs.slice(0, vnCurrentIndex).join('\n\n').trim();
-  }
-
-  if (visibleText.length === 0) return false;
-
-  // Set the value (React-safe method)
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-  editTextarea.focus();
-  setter.call(editTextarea, visibleText);
-  editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-  editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
-  editTextarea.blur();
+  ta.focus();
+  setter.call(ta, newText);                              // React-safe
+  ta.dispatchEvent(new Event("input", { bubbles: true }));
+  ta.dispatchEvent(new Event("change", { bubbles: true }));
+  await sleep(400);
 
-  await new Promise(r => setTimeout(r, 500));
+  const saveBtn = findButton(cur(), "save");
+  if (saveBtn) saveBtn.click();
+  else ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
 
-  const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
-  if (saveBtn) {
-    saveBtn.click();
-  } else {
-    editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  for (let i = 0; i < 40; i++) {                          // wait for edit mode to close (max ~4s)
+    await sleep(100);
+    const c = cur();
+    if (!c || !c.querySelector("textarea")) break;
+  }
+  const c = cur();
+  if (c && c.querySelector("textarea")) {
+    await cancelEdit(c);
+    return { ok: false, reason: "saving the edit didn't go through" };
+  }
+  await sleep(500);                                       // let the re-render settle
+  return { ok: true };
+}
+
+async function handleIntercept(e) {
+  if (vnBypass) return;                                   // our own auto-send
+  if (isCuttingMessage) { e.preventDefault(); e.stopPropagation(); return; }   // swallow double-clicks mid-cut
+  if (!vnEnabled() || !isChatPage() || !vn.active) return;
+
+  const li = findVNMessage(getMessageItems());
+  if (!li) return;
+  const blocks = getVNBlocks(li);
+  if (vn.revealed >= blocks.length) return;               // already read everything -> normal send
+
+  e.preventDefault();                                     // must happen before the first await
+  e.stopPropagation();
+  isCuttingMessage = true;
+  const btn = document.getElementById("vn-continue-btn");
+  if (btn) btn.style.display = "none";
+
+  const readCount = vn.revealed;
+  let result;
+  try { result = await cutMessage(li, blocks); }
+  catch (err) { console.error("[VN] cut crashed:", err); result = { ok: false, reason: "unexpected error (see console)" }; }
+
+  vn.ignoreSignalsUntil = Date.now() + 3000;
+  isCuttingMessage = false;
+  vnReset();                                              // un-hide everything; the message is now exactly what was read
+
+  if (!result.ok) {
+    showVnToast("✂️ Not cut: " + result.reason, true);
+    return;
   }
 
-  let attempts = 0;
-  while (lastMsg.querySelector('textarea') && attempts < 30) {
-    await new Promise(r => setTimeout(r, 100));
-    attempts++;
+  if (vnAutoSend()) {
+    await sleep(250);
+    const sendBtn = document.querySelector('button[aria-label="Send" i], button[title="Send" i]');
+    if (sendBtn && !sendBtn.disabled) {
+      showVnToast(result.unchanged ? "Sent" : `✂️ Cut after paragraph ${readCount}/${blocks.length}, sent`, false);
+      vnBypass = true;
+      try { sendBtn.click(); } finally { vnBypass = false; }
+      return;
+    }
   }
-  
-  await new Promise(r => setTimeout(r, 1500)); 
-  window.dispatchEvent(new Event('resize'));
-
-  return true;
+  showVnToast(result.unchanged ? "Hit Send again." : `✂️ Cut after paragraph ${readCount}/${blocks.length}. Hit Send again.`, false);
 }
 
 // --- HELPER: Dot State Logic ---
@@ -962,3 +1142,5 @@ function animateWeather() {
   particles.forEach(p => { p.update(); p.draw(); });
   animationId = requestAnimationFrame(animateWeather);
 }
+
+})();
