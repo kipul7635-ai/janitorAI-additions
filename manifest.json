@@ -40,7 +40,6 @@
     {
       "resources": [
         "audio/*",
-        "assets.json",
         "images/tabIcon.png"
       ],
       "matches": [
