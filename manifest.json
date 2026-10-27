@@ -37,15 +37,16 @@
     }
   ],
   "web_accessible_resources": [
-    {
-      "resources": [
-        "audio/*",
-        "reader.html",
-        "images/tabIcon.png"
-      ],
-      "matches": [
-        "*://*.janitorai.com/*"
-      ]
-    }
-  ]
+  {
+    "resources": [
+      "audio/*",
+      "reader.html",
+      "reader.js",
+      "images/tabIcon.png"
+    ],
+    "matches": [
+      "*://*.janitorai.com/*"
+    ]
+  }
+]
 }
