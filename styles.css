@@ -170,3 +170,40 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
 #ambient-settings-menu input[type="range"] { padding: 0 !important; accent-color: #22c55e !important; }
 #ambient-settings-menu button { background: #fff !important; color: #000 !important; border: none !important; padding: 10px !important; border-radius: 8px !important; font-weight: 600 !important; cursor: pointer !important; }
 #test-ai-btn { background: transparent !important; color: #e4e4e7 !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; }
+
+/* --- VISUAL NOVEL MODE --- */
+.vn-hidden-text {
+    display: none !important;
+}
+
+#vn-continue-btn {
+    position: fixed !important;
+    bottom: 80px !important; /* Sits just above the chat input box */
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    z-index: 100000 !important;
+    background: rgba(10, 10, 12, 0.85) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+    border-radius: 50% !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: none; /* Hidden by default */
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 20px !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    animation: vnBounce 1.5s infinite !important;
+    transition: background 0.2s !important;
+}
+
+#vn-continue-btn:hover {
+    background: rgba(40, 40, 45, 0.9) !important;
+}
+
+@keyframes vnBounce {
+    0%, 100% { transform: translate(-50%, 0); }
+    50% { transform: translate(-50%, -8px); }
+}
