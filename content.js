@@ -294,14 +294,12 @@ let isCuttingMessage = false;
     const hidden = document.querySelectorAll('.vn-hidden-text');
     if (hidden.length === 0) return;
 
-    // Stop the send
     e.preventDefault();
     e.stopPropagation();
     isCuttingMessage = true;
 
     console.log("✂️ Intercepted send. Cutting unseen text...");
 
-    // Visual cue on send button
     const sendBtn = document.querySelector('button[aria-label="Send"]');
     const originalHTML = sendBtn ? sendBtn.innerHTML : null;
     if (sendBtn) {
@@ -311,7 +309,6 @@ let isCuttingMessage = false;
 
     const success = await cutMessageAndSend();
 
-    // Restore button
     if (sendBtn) {
       sendBtn.innerHTML = originalHTML;
       sendBtn.disabled = false;
@@ -392,7 +389,7 @@ function advanceVNText() {
   }
 }
 
-// --- SAFE CUT MESSAGE LOGIC ---
+// --- SAFE CUT MESSAGE LOGIC (Fixing the Virtual Scroller) ---
 async function cutMessageAndSend() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return false;
@@ -408,11 +405,7 @@ async function cutMessageAndSend() {
   if (!editBtn) return false;
 
   // 1. Click Edit safely
-  editBtn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
-  editBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  editBtn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
-  editBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  editBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  editBtn.click();
   
   // Wait for textarea to appear
   let editTextarea = null;
@@ -427,21 +420,15 @@ async function cutMessageAndSend() {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   setter.call(editTextarea, visibleText);
   editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-  editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
 
   await new Promise(r => setTimeout(r, 300));
 
   // 3. Click Save safely
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
   if (saveBtn) {
-    saveBtn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
-    saveBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    saveBtn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
-    saveBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    saveBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    saveBtn.click();
   } else {
-    const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
-    editTextarea.dispatchEvent(enterEvent);
+    editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   }
 
   // 4. Wait for the textarea to disappear (indicating the save is complete)
@@ -451,9 +438,25 @@ async function cutMessageAndSend() {
     attempts++;
   }
   
-  // 5. Wait for the network to settle, then FORCE the virtual scroller to recalculate its heights
-  await new Promise(r => setTimeout(r, 1200)); 
+  // 5. FORCE THE VIRTUAL SCROLLER TO UPDATE (This stops the crash!)
+  // Wait for the network to settle slightly
+  await new Promise(r => setTimeout(r, 1000)); 
+  
+  const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
+  if (scroller) {
+    // Dispatch a fake scroll event to force Virtuoso to recalculate item heights
+    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+    // Slightly scroll the window to force a layout reflow
+    scroller.scrollTop = scroller.scrollTop - 1;
+    await new Promise(r => setTimeout(r, 50));
+    scroller.scrollTop = scroller.scrollTop + 1;
+  }
+  
+  // Dispatch a window resize as a final failsafe
   window.dispatchEvent(new Event('resize'));
+
+  // Wait one more time to ensure React state is fully flushed
+  await new Promise(r => setTimeout(r, 500)); 
   
   return true;
 }
