@@ -40,6 +40,7 @@
     {
       "resources": [
         "audio/*",
+        "reader.html",
         "images/tabIcon.png"
       ],
       "matches": [
