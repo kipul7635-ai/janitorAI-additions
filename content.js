@@ -204,11 +204,11 @@ function showVnToast(text, isError) {
   showVnToast._t = setTimeout(() => { t.style.display = "none"; }, 4000);
 }
 
-// ===== CHANGED: enumerate audio/ folder instead of fetching assets.json =====
+// ===== CHANGED: enumerate audio/ folder via hidden iframe (works in Kiwi Browser) =====
 // --- 0. ENUMERATE AUDIO FOLDER ---
 (async function loadAudioFolder() {
   try {
-    cachedAudio = await listAudioFiles();
+    cachedAudio = await listAudioFilesViaIframe();
     populateManualDropdowns();
     if (cachedAudio.length === 0) {
       console.log("[Ambient] No audio files in audio/ folder — music will be disabled.");
@@ -221,34 +221,35 @@ function showVnToast(text, isError) {
   }
 })();
 
-// Lists every audio file in the packaged audio/ directory and returns "audio/<encoded-name>" paths
-// (the prefix is required so chrome.runtime.getURL resolves inside the WAR scope).
-// Safeguard: resolves [] on any failure so the rest of the extension just sees "no audio".
-function listAudioFiles() {
+function listAudioFilesViaIframe() {
   return new Promise((resolve) => {
-    if (typeof chrome.runtime.getPackageDirectoryEntry !== "function") {
-      console.warn("[Ambient] getPackageDirectoryEntry unavailable — no audio.");
-      return resolve([]);
-    }
-    chrome.runtime.getPackageDirectoryEntry(root => {
-      root.getDirectory("audio", {}, dir => {
-        const reader = dir.createReader();
-        const names = [];
-        // readEntries returns ≤100 entries per call — must loop until it returns an empty array.
-        const readBatch = () => reader.readEntries(entries => {
-          if (!entries.length) {
-            const files = names
-              .filter(n => /\.(mp3|ogg|m4a|wav|flac)$/i.test(n))
-              .map(n => "audio/" + encodeURIComponent(n));
-            resolve(files);
-            return;
-          }
-          for (const e of entries) if (e.isFile) names.push(e.name);
-          readBatch();
-        }, err => { console.warn("[Ambient] readEntries failed:", err); resolve([]); });
-        readBatch();
-      }, err => { console.warn("[Ambient] audio folder not found:", err); resolve([]); });
-    });
+    // Create a hidden iframe that points to reader.html (which has the real API access).
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = chrome.runtime.getURL('reader.html');
+    document.body.appendChild(iframe);
+
+    // Listen for the message from the iframe.
+    const messageHandler = (event) => {
+      if (event.data && event.data.type === 'AUDIO_FILES') {
+        window.removeEventListener('message', messageHandler);
+        iframe.remove();
+        const files = event.data.files
+          .filter(n => /\.(mp3|ogg|m4a|wav|flac)$/i.test(n))
+          .map(n => 'audio/' + encodeURIComponent(n));
+        resolve(files);
+      }
+    };
+    window.addEventListener('message', messageHandler);
+
+    // Safety timeout: if the iframe never responds, resolve with an empty list.
+    setTimeout(() => {
+      if (document.body.contains(iframe)) {
+        window.removeEventListener('message', messageHandler);
+        iframe.remove();
+        resolve([]);
+      }
+    }, 5000);
   });
 }
 // ===== END CHANGED =====
