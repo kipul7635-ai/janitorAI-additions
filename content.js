@@ -320,15 +320,12 @@ let isCuttingMessage = false;
     isCuttingMessage = false;
 
     if (success) {
-      // Show the toast notification
       const toast = document.getElementById('vn-toast');
       if (toast) {
         toast.style.display = 'block';
         setTimeout(() => { toast.style.display = 'none'; }, 4000);
       }
-      // Note: We do NOT auto-send. The user must tap Send again.
     } else {
-      // Fallback: if edit failed, just reveal everything
       hidden.forEach(h => h.classList.remove('vn-hidden-text'));
       document.getElementById('vn-continue-btn').style.display = 'none';
     }
@@ -395,7 +392,7 @@ function advanceVNText() {
   }
 }
 
-// --- GENTLER CUT MESSAGE LOGIC ---
+// --- SAFE CUT MESSAGE LOGIC ---
 async function cutMessageAndSend() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return false;
@@ -410,30 +407,54 @@ async function cutMessageAndSend() {
   const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
   if (!editBtn) return false;
 
-  // 1. Click Edit
-  editBtn.click();
-  await new Promise(r => setTimeout(r, 500));
+  // 1. Click Edit safely
+  editBtn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+  editBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  editBtn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+  editBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  editBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   
-  const editTextarea = lastMsg.querySelector('textarea');
+  // Wait for textarea to appear
+  let editTextarea = null;
+  for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      editTextarea = lastMsg.querySelector('textarea');
+      if (editTextarea) break;
+  }
   if (!editTextarea) return false;
 
   // 2. Set value (React-safe)
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   setter.call(editTextarea, visibleText);
   editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+  editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
 
   await new Promise(r => setTimeout(r, 300));
 
-  // 3. Click Save
+  // 3. Click Save safely
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
   if (saveBtn) {
-    saveBtn.click();
+    saveBtn.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    saveBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    saveBtn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    saveBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    saveBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   } else {
-    editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+    const enterEvent = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true });
+    editTextarea.dispatchEvent(enterEvent);
   }
 
-  // 4. Wait for the network to commit the edit
-  await new Promise(r => setTimeout(r, 1500));
+  // 4. Wait for the textarea to disappear (indicating the save is complete)
+  let attempts = 0;
+  while (lastMsg.querySelector('textarea') && attempts < 30) {
+    await new Promise(r => setTimeout(r, 100));
+    attempts++;
+  }
+  
+  // 5. Wait for the network to settle, then FORCE the virtual scroller to recalculate its heights
+  await new Promise(r => setTimeout(r, 1200)); 
+  window.dispatchEvent(new Event('resize'));
+  
   return true;
 }
 
