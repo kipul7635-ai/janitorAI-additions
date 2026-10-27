@@ -286,7 +286,7 @@ let isCuttingMessage = false;
     }
   });
 
-  // --- 7. INTERCEPT SEND (Gentler Approach) ---
+  // --- 7. INTERCEPT SEND (Safe Cut) ---
   const handleIntercept = async (e) => {
     if (isCuttingMessage) return;
     if (localStorage.getItem("ambient_vn_mode") !== "true") return;
@@ -302,12 +302,17 @@ let isCuttingMessage = false;
 
     const sendBtn = document.querySelector('button[aria-label="Send"]');
     const originalHTML = sendBtn ? sendBtn.innerHTML : null;
+    
+    // Lock the send button to prevent crashes during Virtual Scroller recalculation
     if (sendBtn) {
       sendBtn.innerHTML = "⏳";
       sendBtn.disabled = true;
     }
 
     const success = await cutMessageAndSend();
+
+    // Keep it locked for an extra 1.5 seconds so the Virtual Scroller can breathe
+    await new Promise(r => setTimeout(r, 1500));
 
     if (sendBtn) {
       sendBtn.innerHTML = originalHTML;
@@ -389,25 +394,19 @@ function advanceVNText() {
   }
 }
 
-// --- SAFE CUT MESSAGE LOGIC (Fixing the Virtual Scroller) ---
+// --- SAFE CUT MESSAGE LOGIC (Markdown Preserved) ---
 async function cutMessageAndSend() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return false;
   const lastMsg = messages[messages.length - 1];
   
-  const paragraphs = Array.from(lastMsg.querySelectorAll('p'));
-  const visibleText = paragraphs
-    .filter(p => !p.classList.contains('vn-hidden-text'))
-    .map(p => p.innerText)
-    .join('\n\n');
-
   const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
   if (!editBtn) return false;
 
-  // 1. Click Edit safely
+  // 1. Click Edit
   editBtn.click();
   
-  // Wait for textarea to appear
+  // 2. Wait for textarea to appear
   let editTextarea = null;
   for (let i = 0; i < 20; i++) {
       await new Promise(r => setTimeout(r, 100));
@@ -416,14 +415,27 @@ async function cutMessageAndSend() {
   }
   if (!editTextarea) return false;
 
-  // 2. Set value (React-safe)
+  // 3. Read the RAW text (which includes all the ** and formatting)
+  const rawMarkdown = editTextarea.value;
+  // Split by double newlines to isolate the paragraphs
+  const paragraphs = rawMarkdown.split(/\n\n+/);
+  
+  // 4. Cut the text. We keep only what was visible.
+  const visibleText = paragraphs.slice(0, vnCurrentIndex).join('\n\n');
+
+  if (visibleText.trim().length === 0) return false;
+
+  // 5. Set the value (React-safe method)
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  editTextarea.focus();
   setter.call(editTextarea, visibleText);
   editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+  editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+  editTextarea.blur();
 
   await new Promise(r => setTimeout(r, 300));
 
-  // 3. Click Save safely
+  // 6. Click Save
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
   if (saveBtn) {
     saveBtn.click();
@@ -431,33 +443,17 @@ async function cutMessageAndSend() {
     editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   }
 
-  // 4. Wait for the textarea to disappear (indicating the save is complete)
+  // 7. Wait for the textarea to disappear (meaning the save was processed)
   let attempts = 0;
   while (lastMsg.querySelector('textarea') && attempts < 30) {
     await new Promise(r => setTimeout(r, 100));
     attempts++;
   }
   
-  // 5. FORCE THE VIRTUAL SCROLLER TO UPDATE (This stops the crash!)
-  // Wait for the network to settle slightly
+  // 8. Wait for the Virtual Scroller to recalculate the height of the message
   await new Promise(r => setTimeout(r, 1000)); 
-  
-  const scroller = document.querySelector('[data-testid="virtuoso-scroller"]');
-  if (scroller) {
-    // Dispatch a fake scroll event to force Virtuoso to recalculate item heights
-    scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
-    // Slightly scroll the window to force a layout reflow
-    scroller.scrollTop = scroller.scrollTop - 1;
-    await new Promise(r => setTimeout(r, 50));
-    scroller.scrollTop = scroller.scrollTop + 1;
-  }
-  
-  // Dispatch a window resize as a final failsafe
   window.dispatchEvent(new Event('resize'));
 
-  // Wait one more time to ensure React state is fully flushed
-  await new Promise(r => setTimeout(r, 500)); 
-  
   return true;
 }
 
