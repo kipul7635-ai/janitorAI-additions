@@ -17,6 +17,16 @@ let vnQueue = [];
 let vnCurrentIndex = 0;
 let isCuttingMessage = false;
 
+// --- HELPER: Clean text for matching (strips markdown & HTML) ---
+function cleanForMatch(str) {
+  if (!str) return "";
+  return str.replace(/<[^>]*>?/gm, '') // Strip HTML tags
+            .replace(/[*_#>`~]/g, '') // Strip markdown formatting
+            .replace(/\s+/g, ' ')     // Normalize whitespace
+            .trim()
+            .toLowerCase();
+}
+
 // --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
   try {
@@ -302,8 +312,7 @@ let isCuttingMessage = false;
 
     const success = await cutMessageAndSend();
 
-    // Keep the flag active for an extra 1.5 seconds to prevent early clicking
-    // and give the Virtual Scroller time to settle.
+    // Keep flag active for an extra 1.5 seconds to prevent early clicking
     await new Promise(r => setTimeout(r, 1500));
 
     isCuttingMessage = false;
@@ -405,14 +414,50 @@ async function cutMessageAndSend() {
 
   // 3. Read the RAW text
   const rawMarkdown = editTextarea.value;
-  const paragraphs = rawMarkdown.split(/\n\n+/);
+  const textareaParagraphs = rawMarkdown.split(/\n\n+/);
   
-  // 4. Cut the text.
-  const visibleText = paragraphs.slice(0, vnCurrentIndex).join('\n\n');
+  // 4. NEW LOGIC: Find the exact cut index by matching visible DOM paragraphs to the raw textarea
+  let cutIndex = 0;
+  let textareaSearchIndex = 0;
+
+  for (let v = 0; v < vnCurrentIndex; v++) {
+      if (!vnQueue[v]) continue;
+      
+      // Extract the text from the DOM and clean it for comparison
+      const domText = cleanForMatch(vnQueue[v].innerText);
+      if (!domText) continue; 
+
+      let found = false;
+      // Search sequentially in the textarea to skip "hidden thinking" blocks
+      for (let i = textareaSearchIndex; i < textareaParagraphs.length; i++) {
+          const rawText = cleanForMatch(textareaParagraphs[i]);
+          
+          // Check if the raw paragraph contains the visible text, or vice-versa
+          if (rawText.includes(domText) || domText.includes(rawText)) {
+              cutIndex = i + 1;
+              textareaSearchIndex = i + 1;
+              found = true;
+              break;
+          }
+      }
+      
+      // Fallback: if we can't perfectly match the text due to formatting differences,
+      // just shift the index forward by 1 to avoid getting stuck.
+      if (!found && cutIndex < textareaParagraphs.length) {
+          cutIndex++;
+          textareaSearchIndex = cutIndex;
+      }
+  }
+
+  // Absolute fallback if no matches were found at all
+  if (cutIndex === 0) cutIndex = vnCurrentIndex;
+
+  // 5. Cut the text
+  const visibleText = textareaParagraphs.slice(0, cutIndex).join('\n\n');
 
   if (visibleText.trim().length === 0) return false;
 
-  // 5. Set the value (React-safe method)
+  // 6. Set the value (React-safe method)
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   editTextarea.focus();
   setter.call(editTextarea, visibleText);
@@ -423,7 +468,7 @@ async function cutMessageAndSend() {
   // CRITICAL FIX: Wait for React to process the input change before clicking save
   await new Promise(r => setTimeout(r, 500));
 
-  // 6. Click Save
+  // 7. Click Save
   const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
   if (saveBtn) {
     saveBtn.click();
@@ -431,7 +476,7 @@ async function cutMessageAndSend() {
     editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   }
 
-  // 7. Wait for the textarea to disappear
+  // 8. Wait for the textarea to disappear
   let attempts = 0;
   while (lastMsg.querySelector('textarea') && attempts < 30) {
     await new Promise(r => setTimeout(r, 100));
