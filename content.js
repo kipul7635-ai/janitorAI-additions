@@ -25,16 +25,19 @@ let isAnimating = false; // Prevents scroll freezes
 })();
 
 (function () {
-  (function () {
   // --- CHANGE TAB ICON (FAVICON) ---
-  const faviconUrl = chrome.runtime.getURL("images/tabIcon.png");
-  let link = document.querySelector("link[rel~='icon']");
-  if (!link) {
-    link = document.createElement('link');
-    link.rel = 'icon';
-    document.head.appendChild(link);
+  try {
+    const faviconUrl = chrome.runtime.getURL("images/tabIcon.png");
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = faviconUrl;
+  } catch (e) {
+    console.warn("Could not load tab icon:", e);
   }
-  link.href = faviconUrl;
 
   // --- 1. INJECT UI ---
   const uiWrapper = document.createElement("div");
@@ -222,6 +225,7 @@ let isAnimating = false; // Prevents scroll freezes
   overlay.addEventListener("click", function () {
     overlay.classList.add("fade-out");
     setTimeout(() => overlay.remove(), 500);
+    // Initial image generation is removed. It will wait for the AI.
   });
 
   // --- 6. LISTEN FOR NETWORK TRIGGERS ---
