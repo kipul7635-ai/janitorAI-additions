@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JanitorAI ambient engine",
-  "version": "1.9",
+  "version": "1.10",
   "description": "Dynamic ambient effects for Janitor AI chats",
   "icons": {
     "16": "images/extensionIcon.png",
@@ -13,7 +13,8 @@
   },
   "permissions": [
     "webRequest",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "*://*.janitorai.com/*",
@@ -24,15 +25,27 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.janitorai.com/chats/*"],
-      "css": ["styles.css"],
-      "js": ["content.js"]
+      "matches": [
+        "*://*.janitorai.com/chats/*"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "js": [
+        "content.js"
+      ]
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["audio/*", "assets.json", "images/tabIcon.png"],
-      "matches": ["*://*.janitorai.com/*"]
+      "resources": [
+        "audio/*",
+        "assets.json",
+        "images/tabIcon.png"
+      ],
+      "matches": [
+        "*://*.janitorai.com/*"
+      ]
     }
   ]
 }
