@@ -27,6 +27,30 @@ function cleanForMatch(str) {
             .toLowerCase();
 }
 
+// --- HELPER: Get current VN paragraphs ---
+function getVNParagraphs() {
+  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  if (messages.length === 0) return [];
+  const latestMsg = messages[messages.length - 1];
+  const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
+  if (!textContainer) return [];
+
+  // 1. Try standard paragraphs
+  let paragraphs = Array.from(textContainer.querySelectorAll('p'));
+  
+  // 2. Fallback to other block elements if no <p> tags
+  if (paragraphs.length === 0) {
+    paragraphs = Array.from(textContainer.querySelectorAll(':scope > div, :scope > li, :scope > blockquote'));
+  }
+  
+  // 3. Absolute fallback: treat the whole container as one block
+  if (paragraphs.length === 0) {
+    paragraphs = [textContainer];
+  }
+  
+  return paragraphs;
+}
+
 // --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
   try {
@@ -292,7 +316,7 @@ function cleanForMatch(str) {
           initVisualNovelMode();
         }
 
-      }, 1000); 
+      }, 1500); // Increased to 1500ms to let React finish rendering the message
     }
   });
 
@@ -312,7 +336,6 @@ function cleanForMatch(str) {
 
     const success = await cutMessageAndSend();
 
-    // Keep flag active for an extra 1.5 seconds to prevent early clicking
     await new Promise(r => setTimeout(r, 1500));
 
     isCuttingMessage = false;
@@ -324,7 +347,10 @@ function cleanForMatch(str) {
         setTimeout(() => { toast.style.display = 'none'; }, 4000);
       }
     } else {
-      hidden.forEach(h => h.classList.remove('vn-hidden-text'));
+      document.querySelectorAll('.vn-hidden-text').forEach(el => {
+        el.classList.remove('vn-hidden-text');
+        el.style.display = '';
+      });
       const btn = document.getElementById('vn-continue-btn');
       if (btn) btn.style.display = 'none';
     }
@@ -345,31 +371,34 @@ function cleanForMatch(str) {
 
 // --- VISUAL NOVEL ENGINE ---
 function initVisualNovelMode() {
-  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
-  if (messages.length === 0) return;
-  
-  const latestMsg = messages[messages.length - 1];
-  const textContainer = latestMsg.querySelector('.css-7w4zgl') || latestMsg.querySelector('[class*="messageBody"]');
-  if (!textContainer) return;
+  // Clear any leftover state from previous messages
+  document.querySelectorAll('.vn-hidden-text').forEach(el => {
+    el.classList.remove('vn-hidden-text');
+    el.style.display = '';
+  });
 
-  let paragraphs = Array.from(textContainer.querySelectorAll('p'));
-  
-  if (paragraphs.length === 0) {
-    paragraphs = [textContainer];
-  }
+  const paragraphs = getVNParagraphs();
+  if (paragraphs.length === 0) return;
 
   vnQueue = paragraphs;
   vnCurrentIndex = 0;
 
-  vnQueue.forEach(p => p.classList.add("vn-hidden-text"));
+  paragraphs.forEach((p, idx) => {
+    if (idx === 0) {
+      p.classList.remove("vn-hidden-text");
+      p.style.display = '';
+    } else {
+      p.classList.add("vn-hidden-text");
+      p.style.display = 'none'; // Force inline hide so React doesn't override it
+    }
+  });
 
-  if (vnQueue.length > 0) {
-    vnQueue[0].classList.remove("vn-hidden-text");
+  if (paragraphs.length > 0) {
     vnCurrentIndex = 1;
   }
 
   const vnBtn = document.getElementById("vn-continue-btn");
-  if (vnQueue.length > 1) {
+  if (paragraphs.length > 1) {
     vnBtn.style.display = "flex";
   } else {
     vnBtn.style.display = "none";
@@ -379,13 +408,18 @@ function initVisualNovelMode() {
 function advanceVNText() {
   const vnBtn = document.getElementById("vn-continue-btn");
   
-  if (vnCurrentIndex < vnQueue.length) {
-    vnQueue[vnCurrentIndex].classList.remove("vn-hidden-text");
-    vnCurrentIndex++;
-    
-    vnQueue[vnCurrentIndex - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Re-query the DOM to avoid stale references if React re-rendered
+  const paragraphs = getVNParagraphs();
 
-    if (vnCurrentIndex >= vnQueue.length) {
+  if (vnCurrentIndex < paragraphs.length) {
+    const p = paragraphs[vnCurrentIndex];
+    p.classList.remove("vn-hidden-text");
+    p.style.display = ''; // Restore visibility
+    
+    p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    vnCurrentIndex++;
+
+    if (vnCurrentIndex >= paragraphs.length) {
       vnBtn.style.display = "none";
     }
   }
@@ -416,23 +450,21 @@ async function cutMessageAndSend() {
   const rawMarkdown = editTextarea.value;
   const textareaParagraphs = rawMarkdown.split(/\n\n+/);
   
-  // 4. NEW LOGIC: Find the exact cut index by matching visible DOM paragraphs to the raw textarea
+  // 4. Find exact cut index by matching fresh DOM paragraphs to the raw textarea
+  const currentDOMParagraphs = getVNParagraphs();
   let cutIndex = 0;
   let textareaSearchIndex = 0;
 
   for (let v = 0; v < vnCurrentIndex; v++) {
-      if (!vnQueue[v]) continue;
+      if (!currentDOMParagraphs[v]) continue;
       
-      // Extract the text from the DOM and clean it for comparison
-      const domText = cleanForMatch(vnQueue[v].innerText);
+      const domText = cleanForMatch(currentDOMParagraphs[v].innerText);
       if (!domText) continue; 
 
       let found = false;
-      // Search sequentially in the textarea to skip "hidden thinking" blocks
       for (let i = textareaSearchIndex; i < textareaParagraphs.length; i++) {
           const rawText = cleanForMatch(textareaParagraphs[i]);
           
-          // Check if the raw paragraph contains the visible text, or vice-versa
           if (rawText.includes(domText) || domText.includes(rawText)) {
               cutIndex = i + 1;
               textareaSearchIndex = i + 1;
@@ -441,15 +473,12 @@ async function cutMessageAndSend() {
           }
       }
       
-      // Fallback: if we can't perfectly match the text due to formatting differences,
-      // just shift the index forward by 1 to avoid getting stuck.
       if (!found && cutIndex < textareaParagraphs.length) {
           cutIndex++;
           textareaSearchIndex = cutIndex;
       }
   }
 
-  // Absolute fallback if no matches were found at all
   if (cutIndex === 0) cutIndex = vnCurrentIndex;
 
   // 5. Cut the text
@@ -465,7 +494,6 @@ async function cutMessageAndSend() {
   editTextarea.dispatchEvent(new Event('change', { bubbles: true }));
   editTextarea.blur();
 
-  // CRITICAL FIX: Wait for React to process the input change before clicking save
   await new Promise(r => setTimeout(r, 500));
 
   // 7. Click Save
@@ -483,7 +511,6 @@ async function cutMessageAndSend() {
     attempts++;
   }
   
-  // CRITICAL FIX: Wait longer for the Virtual Scroller to recalculate the height of the message
   await new Promise(r => setTimeout(r, 1500)); 
   window.dispatchEvent(new Event('resize'));
 
