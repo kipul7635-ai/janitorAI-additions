@@ -1,0 +1,31 @@
+name: Build Extension
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Generate assets.json
+      run: |
+        node -e '
+          const fs = require("fs");
+          let audioList = [];
+          if (fs.existsSync("audio")) {
+            const files = fs.readdirSync("audio");
+            audioList = files
+              .filter(f => f.endsWith(".mp3") || f.endsWith(".wav") || f.endsWith(".ogg") || f.endsWith(".m4a"))
+              .map(f => "audio/" + f);
+          }
+          fs.writeFileSync("assets.json", JSON.stringify({ audio: audioList }, null, 2));
+          console.log("✅ Generated assets.json with " + audioList.length + " tracks.");
+        '
+
+    - name: Zip Extension
+      run: zip -r extension.zip . -x "*.git*"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: my-extension-build
+        path: extension.zip
