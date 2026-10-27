@@ -15,55 +15,9 @@ let isAnimating = false;
 // VN Mode Variables
 let vnQueue = [];
 let vnCurrentIndex = 0;
+let isCuttingMessage = false;
 
-// --- 0. FETCH INTERCEPTOR (Safely cuts context before sending to AI) ---
-const originalFetch = window.fetch;
-window.fetch = async function (...args) {
-  const [resource, config] = args;
-  const url = typeof resource === 'string' ? resource : resource.url;
-
-  // Intercept Janitor AI's generation request
-  if (url.includes("generateAlpha") && config && config.method === "POST") {
-    try {
-      let body = JSON.parse(config.body);
-      if (body.chatMessages && body.chatMessages.length > 0) {
-        
-        // Find the last bot message in the payload
-        for (let i = body.chatMessages.length - 1; i >= 0; i--) {
-          if (body.chatMessages[i].is_bot) {
-            
-            // Get the visible text from the DOM
-            const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
-            const lastMsg = messages[messages.length - 1];
-            
-            if (lastMsg) {
-              const paragraphs = Array.from(lastMsg.querySelectorAll('p'));
-              // If there are hidden paragraphs, we reconstruct the message
-              if (paragraphs.some(p => p.classList.contains('vn-hidden-text'))) {
-                const visibleText = paragraphs
-                  .filter(p => !p.classList.contains('vn-hidden-text'))
-                  .map(p => p.innerText)
-                  .join('\n\n');
-                
-                // Overwrite the context being sent to the AI
-                body.chatMessages[i].message = visibleText;
-                config.body = JSON.stringify(body);
-                console.log("✂️ Intercepted generateAlpha. Truncated context to only visible text.");
-              }
-            }
-            break; // We only need to modify the last bot message
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Fetch Interceptor error:", e);
-    }
-  }
-
-  return originalFetch.apply(this, args);
-};
-
-// --- 1. FETCH AUDIO ASSETS EARLY ---
+// --- 0. FETCH AUDIO ASSETS EARLY ---
 (async function loadAssetsEarly() {
   try {
     const res = await fetch(chrome.runtime.getURL("assets.json"));
@@ -88,7 +42,7 @@ window.fetch = async function (...args) {
     link.href = faviconUrl;
   } catch (e) {}
 
-  // --- 2. INJECT UI ---
+  // --- 1. INJECT UI ---
   const uiWrapper = document.createElement("div");
   uiWrapper.id = "ambient-ui-wrapper";
 
@@ -169,7 +123,7 @@ window.fetch = async function (...args) {
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
-  // --- 3. SETUP BACKGROUND & WEATHER DOM ---
+  // --- 2. SETUP BACKGROUND & WEATHER DOM ---
   const bgWrapper = document.createElement("div");
   bgWrapper.id = "ambient-bg-wrapper";
   bgWrapper.innerHTML = `
@@ -203,10 +157,21 @@ window.fetch = async function (...args) {
   vnBtn.addEventListener("click", advanceVNText);
   document.body.appendChild(vnBtn);
 
+  // VN "Cut" Notification Banner
+  const vnToast = document.createElement("div");
+  vnToast.id = "vn-toast";
+  vnToast.style.cssText = `
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: #22c55e; color: white; padding: 10px 20px; border-radius: 8px;
+    font-weight: bold; z-index: 2147483647; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  `;
+  vnToast.textContent = "✂️ Text cut! Hit Send again.";
+  document.body.appendChild(vnToast);
+
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  // --- 4. LOAD SETTINGS ---
+  // --- 3. LOAD SETTINGS ---
   document.getElementById("set-api-key").value = localStorage.getItem("ambient_api_key") || "";
   document.getElementById("set-model").value = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
   document.getElementById("set-proxy").value = localStorage.getItem("ambient_proxy") || "https://openrouter.ai/api/v1/chat/completions";
@@ -231,7 +196,7 @@ window.fetch = async function (...args) {
   const vnCheckbox = document.getElementById("set-vn-mode");
   vnCheckbox.checked = localStorage.getItem("ambient_vn_mode") === "true";
 
-  // --- 5. EVENT LISTENERS ---
+  // --- 4. EVENT LISTENERS ---
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
@@ -277,7 +242,7 @@ window.fetch = async function (...args) {
     await askAI(actualChat, cachedAudio, apiKey);
   });
 
-  // --- 6. OVERLAY & AUDIO ---
+  // --- 5. OVERLAY & AUDIO ---
   const overlay = document.createElement("div");
   overlay.id = "janitor-init-overlay";
   overlay.textContent = "[ initialize chat ]";
@@ -295,7 +260,7 @@ window.fetch = async function (...args) {
     setTimeout(() => overlay.remove(), 500);
   });
 
-  // --- 7. LISTEN FOR NETWORK TRIGGERS ---
+  // --- 6. LISTEN FOR NETWORK TRIGGERS ---
   let networkDebounce = null;
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -320,6 +285,66 @@ window.fetch = async function (...args) {
       }, 1000); 
     }
   });
+
+  // --- 7. INTERCEPT SEND (Gentler Approach) ---
+  const handleIntercept = async (e) => {
+    if (isCuttingMessage) return;
+    if (localStorage.getItem("ambient_vn_mode") !== "true") return;
+
+    const hidden = document.querySelectorAll('.vn-hidden-text');
+    if (hidden.length === 0) return;
+
+    // Stop the send
+    e.preventDefault();
+    e.stopPropagation();
+    isCuttingMessage = true;
+
+    console.log("✂️ Intercepted send. Cutting unseen text...");
+
+    // Visual cue on send button
+    const sendBtn = document.querySelector('button[aria-label="Send"]');
+    const originalHTML = sendBtn ? sendBtn.innerHTML : null;
+    if (sendBtn) {
+      sendBtn.innerHTML = "⏳";
+      sendBtn.disabled = true;
+    }
+
+    const success = await cutMessageAndSend();
+
+    // Restore button
+    if (sendBtn) {
+      sendBtn.innerHTML = originalHTML;
+      sendBtn.disabled = false;
+    }
+
+    isCuttingMessage = false;
+
+    if (success) {
+      // Show the toast notification
+      const toast = document.getElementById('vn-toast');
+      if (toast) {
+        toast.style.display = 'block';
+        setTimeout(() => { toast.style.display = 'none'; }, 4000);
+      }
+      // Note: We do NOT auto-send. The user must tap Send again.
+    } else {
+      // Fallback: if edit failed, just reveal everything
+      hidden.forEach(h => h.classList.remove('vn-hidden-text'));
+      document.getElementById('vn-continue-btn').style.display = 'none';
+    }
+  };
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('button[aria-label="Send"]')) {
+      handleIntercept(e);
+    }
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && e.target.classList.contains('_chatTextarea_1e2lg_1')) {
+      handleIntercept(e);
+    }
+  }, true);
 })();
 
 // --- VISUAL NOVEL ENGINE ---
@@ -368,6 +393,48 @@ function advanceVNText() {
       vnBtn.style.display = "none";
     }
   }
+}
+
+// --- GENTLER CUT MESSAGE LOGIC ---
+async function cutMessageAndSend() {
+  const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  if (messages.length === 0) return false;
+  const lastMsg = messages[messages.length - 1];
+  
+  const paragraphs = Array.from(lastMsg.querySelectorAll('p'));
+  const visibleText = paragraphs
+    .filter(p => !p.classList.contains('vn-hidden-text'))
+    .map(p => p.innerText)
+    .join('\n\n');
+
+  const editBtn = lastMsg.querySelector('button[title="Edit"], button[aria-label="Edit"]');
+  if (!editBtn) return false;
+
+  // 1. Click Edit
+  editBtn.click();
+  await new Promise(r => setTimeout(r, 500));
+  
+  const editTextarea = lastMsg.querySelector('textarea');
+  if (!editTextarea) return false;
+
+  // 2. Set value (React-safe)
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  setter.call(editTextarea, visibleText);
+  editTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+  await new Promise(r => setTimeout(r, 300));
+
+  // 3. Click Save
+  const saveBtn = lastMsg.querySelector('button[title="Save"], button[aria-label="Save"]');
+  if (saveBtn) {
+    saveBtn.click();
+  } else {
+    editTextarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+  }
+
+  // 4. Wait for the network to commit the edit
+  await new Promise(r => setTimeout(r, 1500));
+  return true;
 }
 
 // --- HELPER: Dot State Logic ---
