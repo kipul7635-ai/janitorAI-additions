@@ -25,6 +25,17 @@ let isAnimating = false; // Prevents scroll freezes
 })();
 
 (function () {
+  (function () {
+  // --- CHANGE TAB ICON (FAVICON) ---
+  const faviconUrl = chrome.runtime.getURL("images/tabIcon.png");
+  let link = document.querySelector("link[rel~='icon']");
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = faviconUrl;
+
   // --- 1. INJECT UI ---
   const uiWrapper = document.createElement("div");
   uiWrapper.id = "ambient-ui-wrapper";
