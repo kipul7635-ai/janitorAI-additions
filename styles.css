@@ -310,3 +310,31 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
     opacity: 0; transition: opacity 1.5s ease;
     background: rgba(0, 0, 0, 0.76);
 }
+
+/* ===== NAME COLORS UI ===== */
+#ambient-name-color-btn {
+    position: fixed !important; top: 70px !important; right: 4px !important;
+    z-index: 2147483646 !important;
+    background: rgba(20, 20, 25, 0.7) !important; backdrop-filter: blur(8px) !important;
+    color: #e4e4e7 !important; border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 50% !important; width: 36px !important; height: 36px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    font-size: 18px !important; cursor: pointer !important; transition: all 0.2s ease !important;
+}
+#ambient-name-color-btn:hover { background: rgba(40, 40, 45, 0.9) !important; }
+
+#ambient-name-colors-menu {
+    position: fixed !important; top: 140px !important; right: 4px !important;
+    z-index: 2147483647 !important; background: rgba(24, 24, 27, 0.95) !important; backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important; border-radius: 12px !important;
+    padding: 20px !important; color: #e4e4e7 !important; display: none; flex-direction: column !important; 
+    gap: 12px !important; width: 300px !important; font-family: -apple-system, sans-serif !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+    max-height: 80vh !important; overflow-y: auto !important;
+}
+
+#ambient-name-colors-menu h2 { margin: 0 0 5px 0 !important; font-size: 16px !important; color: #fff !important; }
+#ambient-name-colors-menu label { font-size: 11px !important; font-weight: 600 !important; color: #a1a1aa !important; text-transform: uppercase !important; margin-bottom: -8px !important; }
+#ambient-name-colors-menu input[type="text"] { background: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; color: #fff !important; padding: 8px 12px !important; border-radius: 8px !important; font-size: 13px !important; }
+#ambient-name-colors-menu button { background: #fff !important; color: #000 !important; border: none !important; padding: 10px !important; border-radius: 8px !important; font-weight: 600 !important; cursor: pointer !important; }
+#ambient-name-colors-menu button#add-name-color-btn { padding: 4px 12px !important; }
