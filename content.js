@@ -216,8 +216,12 @@ function saveNameColors() {
 function applyNameColors() {
   const items = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   items.forEach(li => {
-    const nameEl = li.querySelector('[class*="nameText"]');
-    if (!nameEl) return;
+    // Broad selector to catch different variations of Janitor's name headers
+    const nameEl = li.querySelector('[class*="nameText"], [class*="author"], [class*="userName"]');
+    
+    // Ensure we didn't grab a random element inside the message body
+    if (!nameEl || nameEl.closest('[class*="messageBody"], .css-7w4zgl')) return;
+    
     const name = nameEl.textContent.trim();
     const key = name.toLowerCase();
     
@@ -459,9 +463,9 @@ function listAudioFilesViaIframe() {
     <div id="name-color-list" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto;"></div>
     <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
     <div style="display:flex; gap:8px; align-items:center;">
-      <input type="text" id="new-name-input" placeholder="Character Name" style="flex:1; padding:4px;" />
-      <input type="color" id="new-color-input" value="#ffffff" style="width:40px; height:30px; padding:0; border:none; cursor:pointer;" />
-      <button id="add-name-color-btn" style="padding: 6px 12px;">+</button>
+      <input type="text" id="new-name-input" placeholder="Character Name" style="flex:1; padding:8px;" />
+      <input type="color" id="new-color-input" value="#ffffff" />
+      <button id="add-name-color-btn" style="padding: 8px 12px;">+</button>
     </div>
     <button id="update-last-msg-btn" style="margin-top:10px; background: #333 !important; color: #fff !important; border: 1px solid #555 !important;">Apply to Latest Message</button>
   `;
@@ -473,37 +477,42 @@ function listAudioFilesViaIframe() {
   selectionPopup.style.display = "none";
   document.body.appendChild(selectionPopup);
 
-  let selectionTimeout;
-  document.addEventListener("selectionchange", () => {
-    clearTimeout(selectionTimeout);
-    selectionTimeout = setTimeout(() => {
+  function checkSelection(e) {
+    if (e && e.target.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup")) return;
+    
+    // Small delay to let the browser finish selection
+    setTimeout(() => {
       const sel = window.getSelection();
       const text = sel.toString().trim();
       const popup = document.getElementById("ambient-selection-popup");
       if (!popup) return;
       
       if (text.length > 0 && text.length < 50) {
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        
-        // Don't show if selecting inside our own UI
-        if (sel.anchorNode && (sel.anchorNode.parentElement.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup"))) {
-          popup.style.display = "none";
-          return;
-        }
-        
-        popup.style.display = "block";
-        popup.style.left = `${rect.left + rect.width / 2}px`;
-        popup.style.top = `${rect.top - 40}px`;
-        popup.textContent = `🎨 Color "${text}"`;
-        popup.dataset.name = text;
+        try {
+          const range = sel.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          
+          if (sel.anchorNode && (sel.anchorNode.parentElement.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup"))) {
+            popup.style.display = "none";
+            return;
+          }
+          
+          popup.style.display = "flex";
+          popup.style.left = `${rect.left + rect.width / 2}px`;
+          popup.style.top = `${rect.top - 45}px`;
+          popup.textContent = `🎨 Color "${text}"`;
+          popup.dataset.name = text;
+        } catch(err) { popup.style.display = "none"; }
       } else {
         popup.style.display = "none";
       }
-    }, 400);
-  });
+    }, 150);
+  }
 
-  selectionPopup.addEventListener("mousedown", (e) => e.preventDefault()); // Keep selection
+  document.addEventListener("mouseup", checkSelection);
+  document.addEventListener("touchend", checkSelection);
+
+  selectionPopup.addEventListener("mousedown", (e) => e.preventDefault());
   selectionPopup.addEventListener("click", (e) => {
     const name = e.target.dataset.name;
     if (name) {
@@ -520,12 +529,11 @@ function listAudioFilesViaIframe() {
   function renderNameColorList() {
     const list = document.getElementById("name-color-list");
     list.innerHTML = "";
-    // Sort alphabetically
     const sortedKeys = Object.keys(nameColors).sort();
     
     for (const key of sortedKeys) {
       const color = nameColors[key];
-      const display = key.charAt(0).toUpperCase() + key.slice(1); // Capitalize for display
+      const display = key.charAt(0).toUpperCase() + key.slice(1);
       
       const row = document.createElement("div");
       row.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:6px;";
@@ -568,10 +576,7 @@ function listAudioFilesViaIframe() {
 
   document.getElementById("update-last-msg-btn").addEventListener("click", () => {
     applyNameColors();
-    const btn = document.getElementById("update-last-msg-btn");
-    const orig = btn.textContent;
-    btn.textContent = "Updated!";
-    setTimeout(() => btn.textContent = orig, 1000);
+    showVnToast("Colors applied to visible messages.", false);
   });
   // ===== END NAME COLORS UI =====
 
@@ -1028,6 +1033,7 @@ function applyVN(blocks) {
 function vnSync() {
   vnSyncQueued = false;
   if (isCuttingMessage) return;
+  applyNameColors(); // <-- Added here to catch DOM changes immediately
   const btn = document.getElementById("vn-continue-btn");
   if (!btn) return;
 
