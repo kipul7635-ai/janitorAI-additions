@@ -10,16 +10,13 @@ let canvas, ctx;
 let animationId = null;
 let particles = [];
 let currentEffect = "none";
-let currentIntensity = 80;
+let currentIntensity = 80;   // 0-100 effect intensity
 let lightningInterval = null;
 let currentBackgroundPrompt = "";
 let currentMusic = "";
 let lastDecision = null; 
 let isGeneratingBg = false;
 let isAnimating = false;
-
-// ===== DISPLAY ENGINE STATE =====
-const getDisplayEngine = () => localStorage.getItem("ambient_display_engine") || "janitor";
 
 // ===== NAME COLORS: STATE =====
 let nameColors = {};
@@ -30,13 +27,13 @@ try {
 
 // ===== VN: STATE =====
 const vn = {
-  active: false,
-  pending: false,
+  active: false,     // a bot message is currently being revealed paragraph by paragraph
+  pending: false,    // bot message was just saved, waiting for it to be present in the DOM
   pendingSince: 0,
   startedAt: 0,
-  msgEl: null,
-  text: "",
-  revealed: 1,
+  msgEl: null,       // the <li> of the message being revealed
+  text: "",          // text signature of that message (detects swipes / re-mounts)
+  revealed: 1,       // how many paragraphs are currently visible
   total: 0,
   ignoreSignalsUntil: 0,
   typewriterTimer: null,
@@ -44,16 +41,16 @@ const vn = {
   _restoreOriginal: null
 };
 let isCuttingMessage = false;
-let vnBypass = false;
+let vnBypass = false;        // lets our own auto-send click through the interceptor
 let vnObserver = null;
 let vnSyncQueued = false;
 const VN_OBS_OPTS = { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class"] };
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-const vnEnabled = () => localStorage.getItem("ambient_vn_mode") === "true" || getDisplayEngine() === "vn";
-const vnAutoSend = () => localStorage.getItem("ambient_vn_autosend") !== "false";
+const vnEnabled = () => localStorage.getItem("ambient_vn_mode") === "true";
+const vnAutoSend = () => localStorage.getItem("ambient_vn_autosend") !== "false"; // default ON
 const vnPunctPercent = () => { const v = Number(localStorage.getItem("ambient_vn_punct_pause")); return localStorage.getItem("ambient_vn_punct_pause") === null || isNaN(v) ? 100 : v; };
-const vnCutNoteEnabled = () => localStorage.getItem("ambient_vn_cutnote_on") === "true";
+const vnCutNoteEnabled = () => localStorage.getItem("ambient_vn_cutnote_on") === "true"; // default OFF
 const vnCutNoteText = () => (localStorage.getItem("ambient_vn_cutnote") ?? VN_CUTNOTE_DEFAULT).trim();
 const VN_CUTNOTE_DEFAULT = "*{{user}} cuts in.*";
 const isChatPage = () => location.pathname.startsWith("/chats/");
@@ -62,12 +59,15 @@ function vnLog(...args) {
 }
 
 // <pure-cut-logic>
+// ===== VN: PURE TEXT LOGIC (no DOM access, unit-tested) =====
 const ALNUM = /[\p{L}\p{N}]/u;
+
 function normText(str) {
   let out = "";
   for (const ch of (str || "")) if (ALNUM.test(ch)) out += ch.toLowerCase();
   return out;
 }
+
 function buildRawIndex(raw, names) {
   names = names || {};
   let norm = "";
@@ -100,6 +100,7 @@ function buildRawIndex(raw, names) {
   }
   return { norm, map };
 }
+
 function locateBlockEnd(rawNorm, n, cursor) {
   if (!n) return cursor;
   let i = rawNorm.indexOf(n, cursor);
@@ -117,6 +118,7 @@ function locateBlockEnd(rawNorm, n, cursor) {
   }
   return -1;
 }
+
 function structuralCut(raw, visibleCount, totalBlocks) {
   const seps = [];
   const re = /\r?\n[ \t]*\r?\n/g;
@@ -125,6 +127,7 @@ function structuralCut(raw, visibleCount, totalBlocks) {
   if (seps.length + 1 !== totalBlocks) return -1;
   return visibleCount >= 1 && visibleCount <= seps.length ? seps[visibleCount - 1] : -1;
 }
+
 function computeCutIndex(raw, visibleTexts, totalBlocks, names) {
   const { norm, map } = buildRawIndex(raw, names);
   let cursor = 0, ok = true;
@@ -142,15 +145,18 @@ function computeCutIndex(raw, visibleTexts, totalBlocks, names) {
 }
 // </pure-cut-logic>
 
+// ===== VN: DOM HELPERS =====
 const VN_BLOCK_SEL = "p, li, h1, h2, h3, h4, h5, h6, pre, blockquote";
 const isThoughtEl = (el) => !!el.closest('[class*="thought"], [class*="reasoning"]');
 
 function getMessageItems() {
   return Array.from(document.querySelectorAll('li[class*="messageDisplayWrapper"]'));
 }
+
 function getTextContainer(li) {
   return li.querySelector(".css-7w4zgl") || li.querySelector('[class*="messageBody"]');
 }
+
 function getVNBlocks(li) {
   const container = li && getTextContainer(li);
   if (!container) return [];
@@ -163,6 +169,7 @@ function getVNBlocks(li) {
   }
   return blocks;
 }
+
 function getChatNames(li) {
   const nameOf = (el) => { const n = el.querySelector('[class*="nameText"]'); return n ? n.textContent.trim() : ""; };
   const char = li ? nameOf(li) : "";
@@ -170,20 +177,26 @@ function getChatNames(li) {
   for (const it of getMessageItems()) { const n = nameOf(it); if (n && n !== char) { user = n; break; } }
   return { char, user };
 }
+
 const fullText = (blocks) => blocks.map(b => b.textContent.trim()).join("\n");
 function sameStart(a, b) {
   const n = Math.min(30, a.length, b.length);
   return a.slice(0, n) === b.slice(0, n);
 }
+
 function findButton(root, label) {
   if (!root) return null;
-  const exact = root.querySelector(`button[title="${label}" i], button[aria-label="${label}" i], [role="button"][aria-label="${label}" i]`);
+  const exact = root.querySelector(
+    `button[title="${label}" i], button[aria-label="${label}" i], [role="button"][aria-label="${label}" i]`
+  );
   if (exact) return exact;
   const l = label.toLowerCase();
   return Array.from(root.querySelectorAll('button, [role="button"]')).find(b =>
-    ((b.getAttribute("title") || "") + " " + (b.getAttribute("aria-label") || "") + " " + (b.textContent || "")).toLowerCase().includes(l)
+    ((b.getAttribute("title") || "") + " " + (b.getAttribute("aria-label") || "") + " " + (b.textContent || ""))
+      .toLowerCase().includes(l)
   ) || null;
 }
+
 function showVnToast(text, isError) {
   const t = document.getElementById("vn-toast");
   if (!t) return;
@@ -195,10 +208,15 @@ function showVnToast(text, isError) {
 }
 
 // ===== NAME COLORS: CORE =====
-function saveNameColors() { localStorage.setItem("ambient_name_colors", JSON.stringify(nameColors)); }
+function saveNameColors() {
+  localStorage.setItem("ambient_name_colors", JSON.stringify(nameColors));
+}
+
 function applyNameColors() {
   if (Object.keys(nameColors).length === 0) return;
+
   const items = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  
   const sortedNames = Object.keys(nameColors).sort((a,b) => b.length - a.length);
   const escapedNames = sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const regex = new RegExp(`\\b(${escapedNames.join('|')})\\b`, 'gi');
@@ -223,6 +241,7 @@ function applyNameColors() {
 
     const container = getTextContainer(li);
     if (!container) return;
+
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode: function(node) {
         if (node.parentElement.closest('[class*="thought"], [class*="reasoning"], .ambient-colored-name')) return NodeFilter.FILTER_REJECT;
@@ -230,24 +249,33 @@ function applyNameColors() {
         return NodeFilter.FILTER_ACCEPT;
       }
     });
+
     const nodesToReplace = [];
     while (walker.nextNode()) {
       const node = walker.currentNode;
       regex.lastIndex = 0;
-      if (regex.test(node.nodeValue)) nodesToReplace.push(node);
+      if (regex.test(node.nodeValue)) {
+        nodesToReplace.push(node);
+      }
     }
+
     nodesToReplace.forEach(node => {
       let text = node.nodeValue;
       const frag = document.createDocumentFragment();
       let lastIdx = 0;
       let match;
       regex.lastIndex = 0;
+
       while ((match = regex.exec(text)) !== null) {
         const matchStart = match.index;
         const matchEnd = regex.lastIndex;
         const matchedText = match[0];
         const lowerName = matchedText.toLowerCase();
-        if (matchStart > lastIdx) frag.appendChild(document.createTextNode(text.slice(lastIdx, matchStart)));
+
+        if (matchStart > lastIdx) {
+          frag.appendChild(document.createTextNode(text.slice(lastIdx, matchStart)));
+        }
+
         if (nameColors[lowerName]) {
           const span = document.createElement('span');
           span.className = 'ambient-colored-name';
@@ -260,37 +288,53 @@ function applyNameColors() {
         }
         lastIdx = matchEnd;
       }
-      if (lastIdx < text.length) frag.appendChild(document.createTextNode(text.slice(lastIdx)));
-      if (node.parentNode) node.parentNode.replaceChild(frag, node);
+
+      if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+      }
+
+      if (node.parentNode) {
+        node.parentNode.replaceChild(frag, node);
+      }
     });
   });
 }
 
-// ===== ENUMERATE AUDIO =====
+// ===== CHANGED: enumerate audio/ folder via hidden iframe =====
 (async function loadAudioFolder() {
   try {
     cachedAudio = await listAudioFilesViaIframe();
     populateManualDropdowns();
-    if (cachedAudio.length === 0) console.log("[Ambient] No audio files in audio/ folder — music disabled.");
+    if (cachedAudio.length === 0) {
+      console.log("[Ambient] No audio files in audio/ folder — music will be disabled.");
+    } else {
+      console.log(`[Ambient] Found ${cachedAudio.length} audio file(s).`);
+    }
   } catch (e) {
+    console.error("[Ambient] Failed to enumerate audio folder:", e);
     cachedAudio = [];
   }
 })();
+
 function listAudioFilesViaIframe() {
   return new Promise((resolve) => {
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     iframe.src = chrome.runtime.getURL('reader.html');
     document.body.appendChild(iframe);
+
     const messageHandler = (event) => {
       if (event.data && event.data.type === 'AUDIO_FILES') {
         window.removeEventListener('message', messageHandler);
         iframe.remove();
-        const files = event.data.files.filter(n => /\.(mp3|ogg|m4a|wav|flac)$/i.test(n)).map(n => 'audio/' + encodeURIComponent(n));
+        const files = event.data.files
+          .filter(n => /\.(mp3|ogg|m4a|wav|flac)$/i.test(n))
+          .map(n => 'audio/' + encodeURIComponent(n));
         resolve(files);
       }
     };
     window.addEventListener('message', messageHandler);
+
     setTimeout(() => {
       if (document.body.contains(iframe)) {
         window.removeEventListener('message', messageHandler);
@@ -300,9 +344,10 @@ function listAudioFilesViaIframe() {
     }, 5000);
   });
 }
+// ===== END CHANGED =====
 
 (function () {
-  // --- CHANGE TAB ICON ---
+  // --- CHANGE TAB ICON (FAVICON) ---
   try {
     const faviconUrl = chrome.runtime.getURL("images/tabIcon.png");
     let link = document.querySelector("link[rel~='icon']");
@@ -324,7 +369,11 @@ function listAudioFilesViaIframe() {
 
   const indicators = document.createElement("div");
   indicators.id = "ambient-indicators";
-  indicators.innerHTML = `<div class="dot idle" id="dot-orch"></div><div class="dot idle" id="dot-cf"></div><div class="dot idle" id="dot-poll"></div>`;
+  indicators.innerHTML = `
+    <div class="dot idle" id="dot-orch"></div>
+    <div class="dot idle" id="dot-cf"></div>
+    <div class="dot idle" id="dot-poll"></div>
+  `;
 
   uiWrapper.appendChild(settingsBtn);
   uiWrapper.appendChild(indicators);
@@ -335,25 +384,26 @@ function listAudioFilesViaIframe() {
     <h2>Ambient Engine</h2>
     <label>OpenRouter API Key</label>
     <input type="password" id="set-api-key" placeholder="sk-or-v1-..." />
+    
     <label>OpenRouter Model</label>
     <input type="text" id="set-model" placeholder="nvidia/nemotron-3-ultra-550b-a55b:free" />
+    
     <label>OpenRouter Proxy URL</label>
     <input type="text" id="set-proxy" value="https://openrouter.ai/api/v1/chat/completions" />
+
     <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
+
     <label>Cloudflare Account ID</label>
     <input type="text" id="set-cf-account" placeholder="Your Account ID" />
+    
     <label>Cloudflare API Token</label>
     <input type="password" id="set-cf-token" placeholder="Your API Token" />
+
     <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
-    
-    <label>Display Engine</label>
-    <select id="set-display-engine">
-      <option value="janitor">JanitorAI (Default)</option>
-      <option value="vn">Visual Novel</option>
-    </select>
 
     <label>Background Blur (<span id="blur-val">10</span>px)</label>
     <input type="range" id="set-blur" min="0" max="30" value="10" />
+    
     <label>Background Dimness (<span id="dim-val">40</span>%)</label>
     <input type="range" id="set-dim" min="0" max="90" value="40" />
     
@@ -366,22 +416,34 @@ function listAudioFilesViaIframe() {
       <input type="checkbox" id="set-vn-mode" /> 
       <span style="color:#fff; font-size:13px;">Visual Novel Text Mode</span>
     </label>
+
+    <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
+      <input type="checkbox" id="set-cinematic-mode" /> 
+      <span style="color:#fff; font-size:13px;">Cinematic Mode (Hide UI)</span>
+    </label>
+
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
       <input type="checkbox" id="set-vn-typewriter" />
       <span style="color:#fff; font-size:13px;">VN: typewriter text reveal</span>
     </label>
+
     <label style="display:flex; flex-direction:column; gap:6px; margin:8px 0 10px;">
       <span style="color:#fff; font-size:13px; text-transform:none !important;">Typewriter speed: <b id="vn-speed-value">45 ms/word</b></span>
       <input type="range" id="set-vn-typewriter-speed" min="15" max="180" step="5" value="45" />
+      <span style="color:#999; font-size:11px; text-transform:none !important;">Lower is faster. Tap the screen to finish the current paragraph.</span>
     </label>
+
     <label style="display:flex; flex-direction:column; gap:6px; margin:8px 0 10px;">
       <span style="color:#fff; font-size:13px; text-transform:none !important;">Punctuation pause: <b id="vn-punct-value">100%</b></span>
       <input type="range" id="set-vn-punct-pause" min="0" max="250" step="10" value="100" />
+      <span style="color:#999; font-size:11px; text-transform:none !important;">How long the text lingers on commas, full stops, dashes and ellipses. 0% turns it off.</span>
     </label>
+
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
       <input type="checkbox" id="set-vn-autosend" /> 
       <span style="color:#fff; font-size:13px;">VN: auto-send right after a cut</span>
     </label>
+
     <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-top:5px;">
       <input type="checkbox" id="set-vn-cutnote-on" /> 
       <span style="color:#fff; font-size:13px;">VN: add a "cut in" note to messages I cut</span>
@@ -391,6 +453,7 @@ function listAudioFilesViaIframe() {
     <div id="manual-controls" style="display: none; flex-direction: column; gap: 12px; margin-top: 10px;">
       <label>Audio</label>
       <select id="manual-audio"></select>
+      
       <label>Weather Effect</label>
       <select id="manual-effect">
         <option value="none">none</option>
@@ -436,9 +499,12 @@ function listAudioFilesViaIframe() {
         <option value="magic-gold">magic — gold</option>
         <option value="magic-black">magic — void</option>
       </select>
+
       <label>Effect Intensity (<span id="intensity-val">80</span>%)</label>
       <input type="range" id="set-intensity" min="0" max="100" step="5" value="80" />
+      <span style="color:#999; font-size:11px; text-transform:none !important;">How strong the current effect is. 0% = barely there, 100% = maximum.</span>
     </div>
+
     <button id="save-settings" style="margin-top: 10px;">Save</button>
     <button id="test-ai-btn">Test Connection</button>
   `;
@@ -475,14 +541,20 @@ function listAudioFilesViaIframe() {
     const list = document.getElementById("name-color-list");
     list.innerHTML = "";
     const sortedKeys = Object.keys(nameColors).sort();
+    
     for (const key of sortedKeys) {
       const color = nameColors[key];
       const display = key.charAt(0).toUpperCase() + key.slice(1);
+      
       const row = document.createElement("div");
       row.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:6px;";
-      row.innerHTML = `<span style="color:${color}; font-weight:bold; text-shadow: 0 0 5px ${color};">${display}</span><button class="del-name-btn" data-name="${key}" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:16px; line-height:1;">×</button>`;
+      row.innerHTML = `
+        <span style="color:${color}; font-weight:bold; text-shadow: 0 0 5px ${color};">${display}</span>
+        <button class="del-name-btn" data-name="${key}" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:16px; line-height:1;">×</button>
+      `;
       list.appendChild(row);
     }
+    
     list.querySelectorAll(".del-name-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         const name = e.target.getAttribute("data-name");
@@ -522,7 +594,11 @@ function listAudioFilesViaIframe() {
   // --- 2. SETUP BACKGROUND & WEATHER DOM ---
   const bgWrapper = document.createElement("div");
   bgWrapper.id = "ambient-bg-wrapper";
-  bgWrapper.innerHTML = `<div class="ambient-bg-img" id="bg-layer-1"></div><div class="ambient-bg-img" id="bg-layer-2"></div><div id="ambient-dim-overlay"></div>`;
+  bgWrapper.innerHTML = `
+    <div class="ambient-bg-img" id="bg-layer-1"></div>
+    <div class="ambient-bg-img" id="bg-layer-2"></div>
+    <div id="ambient-dim-overlay"></div>
+  `;
   document.body.appendChild(bgWrapper);
 
   canvas = document.createElement("canvas");
@@ -538,20 +614,23 @@ function listAudioFilesViaIframe() {
   const hazeOverlay = document.createElement("div");
   hazeOverlay.id = "ambient-haze-overlay";
   document.body.appendChild(hazeOverlay);
+
   const lightningOverlay = document.createElement("div");
   lightningOverlay.id = "ambient-lightning-overlay";
   document.body.appendChild(lightningOverlay);
+
   const fieryOverlay = document.createElement("div");
   fieryOverlay.id = "ambient-fiery-overlay";
   document.body.appendChild(fieryOverlay);
+
   const lovelyHeartsOverlay = document.createElement("div");
   lovelyHeartsOverlay.id = "ambient-lovely-hearts-overlay";
   document.body.appendChild(lovelyHeartsOverlay);
+
   const darknessOverlay = document.createElement("div");
   darknessOverlay.id = "ambient-darkness-overlay";
   document.body.appendChild(darknessOverlay);
 
-  // VN UI Elements
   const vnBtn = document.createElement("button");
   vnBtn.id = "vn-continue-btn";
   vnBtn.innerHTML = "▼";
@@ -580,30 +659,12 @@ function listAudioFilesViaIframe() {
 
   const vnToast = document.createElement("div");
   vnToast.id = "vn-toast";
-  vnToast.style.cssText = `position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #22c55e; color: white; padding: 10px 20px; border-radius: 8px; font-weight: bold; z-index: 2147483647; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);`;
-  document.body.appendChild(vnToast);
-
-  // ===== VISUAL NOVEL DISPLAY ENGINE BOX =====
-  const vnBox = document.createElement("div");
-  vnBox.id = "ambient-vn-box";
-  vnBox.innerHTML = `
-    <div class="vn-box-left">
-      <img id="vn-box-avatar" src="" alt="Avatar">
-      <div id="vn-box-name"></div>
-    </div>
-    <div class="vn-box-right">
-      <div id="vn-box-text"></div>
-    </div>
+  vnToast.style.cssText = `
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: #22c55e; color: white; padding: 10px 20px; border-radius: 8px;
+    font-weight: bold; z-index: 2147483647; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   `;
-  vnBox.addEventListener("click", (e) => {
-    // Clicking the box (but not on interactive elements) advances the text
-    if (e.target.closest("button, input, a")) return;
-    if (document.getElementById("vn-continue-btn").style.display !== "none") {
-      advanceVNText();
-    }
-  });
-  document.body.appendChild(vnBox);
-  // =======================================
+  document.body.appendChild(vnToast);
 
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
@@ -617,40 +678,29 @@ function listAudioFilesViaIframe() {
   
   const savedBlur = localStorage.getItem("ambient_blur") || "10";
   const savedDim = localStorage.getItem("ambient_dim") || "40";
+  
   document.getElementById("set-blur").value = savedBlur;
   document.getElementById("set-dim").value = savedDim;
+  
   document.getElementById("blur-val").textContent = savedBlur;
   document.getElementById("dim-val").textContent = savedDim;
+  
   applyVisualSettings(savedBlur, savedDim);
 
   const savedIntensity = localStorage.getItem("ambient_intensity") || "80";
   document.getElementById("set-intensity").value = savedIntensity;
   document.getElementById("intensity-val").textContent = savedIntensity;
 
-  const displayEngineSelect = document.getElementById("set-display-engine");
-  displayEngineSelect.value = getDisplayEngine();
-  
-  function updateEngineUI() {
-    const engine = getDisplayEngine();
-    if (engine === "vn") {
-      document.body.classList.add("ambient-engine-vn");
-      localStorage.setItem("ambient_vn_mode", "true");
-      document.getElementById("set-vn-mode").checked = true;
-      document.getElementById("set-vn-mode").disabled = true;
-      document.getElementById("set-vn-mode").parentElement.style.opacity = "0.5";
-    } else {
-      document.body.classList.remove("ambient-engine-vn");
-      document.getElementById("set-vn-mode").disabled = false;
-      document.getElementById("set-vn-mode").parentElement.style.opacity = "1";
-      document.getElementById("set-vn-mode").checked = localStorage.getItem("ambient_vn_mode") === "true";
-      if (!vn.active && !vn.pending) vnBox.style.display = "none";
-    }
-  }
-  updateEngineUI();
-
   const manualCheckbox = document.getElementById("set-manual-mode");
   manualCheckbox.checked = localStorage.getItem("ambient_manual_mode") === "true";
   document.getElementById("manual-controls").style.display = manualCheckbox.checked ? "flex" : "none";
+
+  const vnCheckbox = document.getElementById("set-vn-mode");
+  vnCheckbox.checked = localStorage.getItem("ambient_vn_mode") === "true";
+
+  const cinematicCheckbox = document.getElementById("set-cinematic-mode");
+  cinematicCheckbox.checked = localStorage.getItem("ambient_cinematic_mode") === "true";
+  document.body.classList.toggle("ambient-cinematic-active", cinematicCheckbox.checked);
 
   const vnTypewriterCheckbox = document.getElementById("set-vn-typewriter");
   vnTypewriterCheckbox.checked = localStorage.getItem("ambient_vn_typewriter") === "true";
@@ -658,10 +708,18 @@ function listAudioFilesViaIframe() {
   const vnTypewriterSpeed = document.getElementById("set-vn-typewriter-speed");
   vnTypewriterSpeed.value = localStorage.getItem("ambient_vn_typewriter_speed") || "45";
   document.getElementById("vn-speed-value").textContent = `${vnTypewriterSpeed.value} ms/word`;
-  
+  vnTypewriterSpeed.addEventListener("input", e => {
+    localStorage.setItem("ambient_vn_typewriter_speed", e.target.value);
+    document.getElementById("vn-speed-value").textContent = `${e.target.value} ms/word`;
+  });
+
   const vnPunctPause = document.getElementById("set-vn-punct-pause");
   vnPunctPause.value = String(vnPunctPercent());
   document.getElementById("vn-punct-value").textContent = `${vnPunctPause.value}%`;
+  vnPunctPause.addEventListener("input", e => {
+    localStorage.setItem("ambient_vn_punct_pause", e.target.value);
+    document.getElementById("vn-punct-value").textContent = `${e.target.value}%`;
+  });
 
   const vnAutoSendCheckbox = document.getElementById("set-vn-autosend");
   vnAutoSendCheckbox.checked = vnAutoSend();
@@ -680,15 +738,11 @@ function listAudioFilesViaIframe() {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
   });
 
-  displayEngineSelect.addEventListener("change", (e) => {
-    localStorage.setItem("ambient_display_engine", e.target.value);
-    updateEngineUI();
-  });
-
   document.getElementById("set-blur").addEventListener("input", (e) => {
     document.getElementById("blur-val").textContent = e.target.value;
     applyVisualSettings(e.target.value, document.getElementById("set-dim").value);
   });
+  
   document.getElementById("set-dim").addEventListener("input", (e) => {
     document.getElementById("dim-val").textContent = e.target.value;
     applyVisualSettings(document.getElementById("set-blur").value, e.target.value);
@@ -700,33 +754,41 @@ function listAudioFilesViaIframe() {
     document.getElementById("manual-controls").style.display = isManual ? "flex" : "none";
   });
 
-  document.getElementById("set-vn-mode").addEventListener("change", (e) => {
-    if (getDisplayEngine() === "vn") return;
+  vnCheckbox.addEventListener("change", (e) => {
     localStorage.setItem("ambient_vn_mode", e.target.checked);
     if (!e.target.checked) vnReset();
   });
 
-  vnTypewriterCheckbox.addEventListener("change", (e) => localStorage.setItem("ambient_vn_typewriter", e.target.checked));
-  vnTypewriterSpeed.addEventListener("input", e => {
-    localStorage.setItem("ambient_vn_typewriter_speed", e.target.value);
-    document.getElementById("vn-speed-value").textContent = `${e.target.value} ms/word`;
+  cinematicCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_cinematic_mode", e.target.checked);
+    document.body.classList.toggle("ambient-cinematic-active", e.target.checked);
   });
-  vnPunctPause.addEventListener("input", e => {
-    localStorage.setItem("ambient_vn_punct_pause", e.target.value);
-    document.getElementById("vn-punct-value").textContent = `${e.target.value}%`;
+
+  vnTypewriterCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_vn_typewriter", e.target.checked);
   });
-  vnAutoSendCheckbox.addEventListener("change", (e) => localStorage.setItem("ambient_vn_autosend", e.target.checked));
+
+  vnAutoSendCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_vn_autosend", e.target.checked);
+  });
+
   cutNoteOnCheckbox.addEventListener("change", (e) => {
     localStorage.setItem("ambient_vn_cutnote_on", e.target.checked);
     cutNoteInput.disabled = !e.target.checked;
   });
-  cutNoteInput.addEventListener("input", (e) => localStorage.setItem("ambient_vn_cutnote", e.target.value));
-  aiNameColorsCheckbox.addEventListener("change", (e) => localStorage.setItem("ambient_ai_name_colors", e.target.checked));
+  cutNoteInput.addEventListener("input", (e) => {
+    localStorage.setItem("ambient_vn_cutnote", e.target.value);
+  });
+
+  aiNameColorsCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_ai_name_colors", e.target.checked);
+  });
 
   document.getElementById("manual-audio").addEventListener("change", (e) => {
     if (!e.target.value) return;
     applyAmbience({ music: e.target.value });
   });
+
   document.getElementById("manual-effect").addEventListener("change", (e) => {
     const intensity = Number(localStorage.getItem("ambient_intensity") || 80);
     applyAmbience({ effect: e.target.value, intensity: intensity });
@@ -791,12 +853,14 @@ function listAudioFilesViaIframe() {
     if (vnEnabled()) {
       vn.pending = true;
       vn.pendingSince = Date.now();
+      vnLog("bot message saved, waiting for it to appear in the page");
       queueVNSync();
     }
 
     if (localStorage.getItem("ambient_manual_mode") === "true") return;
     clearTimeout(networkDebounce);
     networkDebounce = setTimeout(() => {
+      console.log("⚡ Bot message saved.");
       const currentText = getLatestChatContext();
       if (currentText) {
         const apiKey = localStorage.getItem("ambient_api_key");
@@ -805,7 +869,7 @@ function listAudioFilesViaIframe() {
     }, 1500);
   });
 
-  // --- 7. INTERCEPT SEND ---
+  // --- 7. INTERCEPT SEND (cut the message at the last paragraph you read) ---
   document.addEventListener("click", (e) => {
     if (!e.isTrusted) return;
     if (e.target.closest && e.target.closest('button[aria-label="Send" i], button[title="Send" i]')) handleIntercept(e);
@@ -818,7 +882,7 @@ function listAudioFilesViaIframe() {
   }, true);
 
   startVNObserver();
-  setInterval(applyNameColors, 1000);
+  setInterval(applyNameColors, 1000); // Syncs names every second
 })();
 
 // ===== VISUAL NOVEL ENGINE =====
@@ -841,6 +905,7 @@ function startVNObserver() {
 
 function clearHidden() {
   document.querySelectorAll(".vn-hidden-text").forEach(el => el.classList.remove("vn-hidden-text"));
+  document.querySelectorAll(".vn-read-text").forEach(el => el.classList.remove("vn-read-text")); // <-- Added
 }
 
 function vnReset() {
@@ -849,14 +914,11 @@ function vnReset() {
   vn.msgEl = null;
   vn.total = 0;
   stopVNTypewriter();
-  if (document.querySelector(".vn-hidden-text")) vnMutate(clearHidden);
+  if (document.querySelector(".vn-hidden-text, .vn-read-text")) vnMutate(clearHidden);
   const btn = document.getElementById("vn-continue-btn");
   if (btn) btn.style.display = "none";
   const back = document.getElementById("vn-back-btn");
   if (back) back.style.display = "none";
-  
-  const vnBox = document.getElementById("ambient-vn-box");
-  if (vnBox) vnBox.style.display = "none";
 }
 
 function findVNMessage(items) {
@@ -975,10 +1037,14 @@ function applyVN(blocks) {
 
   vnMutate(() => {
     const live = new Set(blocks);
-    document.querySelectorAll(".vn-hidden-text").forEach(el => { if (!live.has(el)) el.classList.remove("vn-hidden-text"); });
+    document.querySelectorAll(".vn-hidden-text, .vn-read-text").forEach(el => { 
+      if (!live.has(el)) { el.classList.remove("vn-hidden-text"); el.classList.remove("vn-read-text"); }
+    });
     blocks.forEach((b, i) => {
-      // Only hide paragraphs after the revealed one
       b.classList.toggle("vn-hidden-text", i >= vn.revealed);
+      // <-- Added: previous paragraphs become 50% transparent
+      b.classList.toggle("vn-read-text", i < vn.revealed - 1); 
+      
       if (i === vn.revealed - 1 && localStorage.getItem("ambient_vn_typewriter") === "true" && !b.dataset.vnTypedOnce) {
         startVNTypewriter(b);
       }
@@ -988,68 +1054,22 @@ function applyVN(blocks) {
   if (back) back.style.display = vn.revealed > 1 ? "flex" : "none";
   const indicator = document.getElementById("vn-paragraph-indicator");
   if (indicator) { indicator.textContent = `${vn.revealed} / ${blocks.length}`; indicator.style.display = blocks.length ? "block" : "none"; }
-
-  updateVNBox(blocks);
-}
-
-function updateVNBox(blocks) {
-  if (getDisplayEngine() !== "vn") return;
-  const box = document.getElementById("ambient-vn-box");
-  if (!box) return;
-
-  if (!vn.active || !blocks || !blocks[vn.revealed - 1]) {
-    box.style.display = "none";
-    return;
-  }
-
-  box.style.display = "flex";
-
-  const li = vn.msgEl;
-  const avatarImg = li.querySelector('img') || li.querySelector('[class*="avatar"]');
-  const nameEl = li.querySelector('[class*="nameText"]');
-  
-  document.getElementById("vn-box-avatar").src = avatarImg ? avatarImg.src : chrome.runtime.getURL("images/tabIcon.png");
-  document.getElementById("vn-box-name").textContent = nameEl ? nameEl.textContent.trim() : "Unknown";
-
-  const currentBlock = blocks[vn.revealed - 1];
-  // We clone the node to render it inside the box while keeping the typewriter logic intact on the original
-  const textContainer = document.getElementById("vn-box-text");
-  
-  // If typewriter is running, mirror its state. Otherwise, just show the innerHTML.
-  if (localStorage.getItem("ambient_vn_typewriter") === "true" && !currentBlock.dataset.vnTypedOnce) {
-      textContainer.innerHTML = currentBlock.innerHTML; 
-      // Sync the visibility of the words in the box with the original
-      const originalWords = currentBlock.querySelectorAll(".vn-typeword");
-      const boxWords = textContainer.querySelectorAll(".vn-typeword");
-      originalWords.forEach((w, i) => {
-        if (boxWords[i]) boxWords[i].style.visibility = w.style.visibility;
-      });
-  } else {
-      textContainer.innerHTML = currentBlock.innerHTML;
-  }
 }
 
 function vnSync() {
   vnSyncQueued = false;
   if (isCuttingMessage) return;
   applyNameColors();
-  
   const btn = document.getElementById("vn-continue-btn");
   if (!btn) return;
 
   if (!vnEnabled() || !isChatPage()) { if (vn.active || vn.pending) vnReset(); return; }
-  if (!vn.active && !vn.pending) {
-      if (getDisplayEngine() === "vn") {
-          const box = document.getElementById("ambient-vn-box");
-          if (box) box.style.display = "none";
-      }
-      return;
-  }
+  if (!vn.active && !vn.pending) return;
 
   const items = getMessageItems();
 
   if (vn.pending) {
-    if (Date.now() - vn.pendingSince > 15000) { vn.pending = false; return; }
+    if (Date.now() - vn.pendingSince > 15000) { vn.pending = false; vnLog("gave up waiting for the new message"); return; }
     const last = items[items.length - 1];
     const blocks = last ? getVNBlocks(last) : [];
     if (!blocks.length) return;
@@ -1059,6 +1079,7 @@ function vnSync() {
     vn.revealed = 1;
     vn.startedAt = Date.now();
     vn.text = fullText(blocks);
+    vnLog("started:", blocks.length, "paragraphs");
     applyVN(blocks);
     return;
   }
@@ -1072,6 +1093,7 @@ function vnSync() {
   }
 
   if (Date.now() - vn.startedAt < 4000 && li === vn.msgEl && items[items.length - 1] !== li) {
+    vnLog("a newer message showed up right after start, retrying");
     vnReset();
     vn.pending = true; vn.pendingSince = Date.now();
     queueVNSync();
@@ -1081,7 +1103,7 @@ function vnSync() {
   vn.msgEl = li;
   const blocks = getVNBlocks(li);
   const t = fullText(blocks);
-  if (!sameStart(t, vn.text)) { vn.revealed = 1; }
+  if (!sameStart(t, vn.text)) { vn.revealed = 1; vnLog("message text was replaced (swipe/regenerate) -> restarting"); }
   vn.text = t;
   applyVN(blocks);
 }
@@ -1160,6 +1182,7 @@ async function cutMessage(li, blocks) {
   const raw = ta.value;
   vn._restoreOriginal = raw;
   const cutIdx = computeCutIndex(raw, visibleTexts, total, names);
+  vnLog("cut index", cutIdx, "of", raw.length, "| revealed", visibleTexts.length, "of", total);
 
   if (cutIdx < 1) {
     await cancelEdit(cur());
@@ -1255,7 +1278,9 @@ function setDotState(dotId, state) {
   if (!dot) return;
   dot.className = "dot " + state;
   if (state === "success" || state === "error") {
-    setTimeout(() => { if (dot.classList.contains(state)) dot.className = "dot idle"; }, 2000);
+    setTimeout(() => {
+      if (dot.classList.contains(state)) dot.className = "dot idle";
+    }, 2000);
   }
 }
 
@@ -1267,10 +1292,12 @@ function applyVisualSettings(blur, dim) {
 function populateManualDropdowns() {
   const audioSelect = document.getElementById("manual-audio");
   if (!audioSelect) return;
+
   if (cachedAudio.length === 0) {
     audioSelect.innerHTML = `<option value="" disabled selected>(no audio files in audio folder)</option>`;
     return;
   }
+
   audioSelect.innerHTML = cachedAudio.map(aud => {
     const label = decodeURIComponent(aud.replace(/^audio\//, ""));
     return `<option value="${aud}">${label}</option>`;
@@ -1313,27 +1340,43 @@ async function askAI(chatText, availableAudio, apiKey) {
   Output ONLY a valid JSON object with the exact keys "background", "music", "effect", "intensity", "name_colors", and "reasoning".
 
   CRITICAL RULES FOR BACKGROUNDS:
-  1. "background" is a prompt for an image generator: 20-35 words, comma-separated phrases, in this order: place, viewpoint, time of day/lighting, weather, details.
-  2. TIME OF DAY: use specific lighting words. Keep previous if none indicated.
-  3. VIEWPOINT: eye-level wide view based on recent messages.
-  4. Style MUST be an anime visual novel background.
-  5. ABSOLUTELY NO living beings (humans, animals, silhouettes). Describe only places and objects.
-  6. Only provide a new background if the scene meaningfully changes; otherwise output "none".
-  7. Weather must match the effect.
-  8. STRICTLY FORBIDDEN WORDS: No anatomy, biology, violence, or gore.
+  1. "background" is a prompt for an image generator: 20-35 words, comma-separated phrases, in this order:
+     (a) the specific place,
+     (b) the viewpoint: what the user's eyes would see from where they are right now (e.g. "eye-level view from the doorway looking across the room", "wide view from the porch steps down the garden path"),
+     (c) the time of day and the light it casts,
+     (d) the weather / atmosphere that is visible,
+     (e) 2-4 concrete, inanimate details that are mentioned or strongly implied in the recent messages (furniture, props, architecture, plants, food, parked vehicles with nobody in them).
+  2. TIME OF DAY: work it out from the chat (explicit mentions, sky, light sources, lamps, candles, meals, sunrise/sunset, activities). Use specific lighting words such as "pale dawn light", "harsh midday sun", "warm golden hour", "deep blue dusk", "moonlit night", "dim candlelight", "overcast grey daylight". If nothing indicates the time, keep the time of day of the previous background; if there is none, pick one that fits the mood.
+  3. VIEWPOINT: base it on the MOST RECENT messages. Where is the user standing or sitting right now, and what is in front of them? Indoors: the room as seen from their position. Outdoors: the vista in front of them. It must read as a still, wide, eye-level visual novel background.
+  4. The style MUST be an anime visual novel background.
+  5. ABSOLUTELY NO living beings: no humans, characters, silhouettes, crowds, faces, body parts, animals, birds, insects or creatures, not even tiny or distant ones. No statues, portraits, mannequins or dolls either. Describe only places and objects. If characters are in the scene, describe their surroundings and leave the spot where they stand empty.
+  6. Only provide a new background prompt when the scene meaningfully changes: a new location, a different viewpoint inside the same location (e.g. moved from the room to the balcony), or a clear shift in time of day / lighting (e.g. afternoon turning to dusk). Otherwise output "none" to save API calls. When you do output a new one, reuse the wording of anything that has not changed (place, props) so consecutive scenes stay consistent.
+  7. The weather you mention in the background must match the "effect" you choose (e.g. wet ground and grey sky when raining, drifting mist when foggy) so the image and the animated overlay agree.
+  8. STRICTLY FORBIDDEN WORDS: Never use words related to anatomy, biology, violence, or gore. (e.g., instead of "veins", use "cracks" or "lines"; instead of "flesh", use "stone" or "wood"). The image generator has a strict safety filter.
 
   CRITICAL RULES FOR WEATHER EFFECTS:
-  1. Outdoor weather must ONLY be used if characters are outside.
-  2. "fog" and fire effects can be used indoors/outdoors.
+  1. Outdoor weather (rain, snow, thunderstorm, blizzard) must ONLY be used if the characters are currently outside. If they are indoors, output "none" for the effect.
+  2. "fog" and the fire effects ("fiery" or any "fire-*" variant) can be used indoors or outdoors if contextually appropriate.
 
   CRITICAL RULES FOR INTENSITY:
-  "intensity" is an integer from 0 to 100. Match it to the scene (e.g., 20-30 for light drizzle, 85-100 for violent thunderstorm).
+  "intensity" is an integer from 0 to 100 that controls how strong the "effect" is.
+  - 0-20: barely noticeable. Light drizzle, a few drifting leaves, faint mist, a soft glow.
+  - 20-40: gentle. Steady light rain, a handful of snowflakes, thin fog, a small campfire.
+  - 40-60: moderate. Normal rain, ordinary snowfall, rolling fog, a healthy fire.
+  - 60-80: strong. Heavy rain, thick snow, dense fog, roaring flames, bright magic.
+  - 80-100: intense. Torrential downpour, blinding blizzard, impenetrable fog, raging inferno, blinding stardust.
+  Match it to the scene: a light spring shower should be 20-30, a violent thunderstorm 85-100, a few petals in a garden 15-25, a field of falling leaves 40-60, a magical display 60-90, a dark ominous room (darkness) 50-80.
+  Always output a number for intensity, even when effect is "none"; it will be ignored in that case.
 
   CRITICAL RULES FOR NAME COLORS:
-  Analyze the recent chat. Assign a fitting hex color to characters present in the text. Return a dictionary mapping names to hex colors in the "name_colors" key.
+  Analyze the recent chat. Identify the names of the characters involved. Assign a fitting hex color to each character (e.g. warm colors for aggressive characters, cool colors for calm ones). Only include names of characters explicitly present in the text. Do not make up names for unnamed characters. Return a dictionary mapping names to hex colors in the "name_colors" key. If there is no new information, you can return an empty object {}.
 
   Available music: ${JSON.stringify(availableAudio)}
-  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petal-pink", "leaf-orange", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].${memoryPrompt}`;
+  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petal-pink", "leaf-orange", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
+  Magical color effects, stardust, aurora, and lovely hearts can be used indoors or outdoors when the scene supports them. Petals, colored leaves, and colored fire should fit the setting; darkness is a dramatic low-light overlay. Keep all effects subtle enough not to obscure chat text.${memoryPrompt}`;
+
+  console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold;");
+  console.log(chatText);
 
   try {
     const response = await fetch(proxyUrl, {
@@ -1350,21 +1393,31 @@ async function askAI(chatText, availableAudio, apiKey) {
 
     const result = await response.json();
     if (result.error) {
+      console.error("API Error:", result.error);
       setDotState("dot-orch", "error"); return;
     }
 
     const aiMessage = result.choices[0].message.content;
+    console.log("🤖 Raw AI Response:", aiMessage);
     
     try {
       let cleanJson = aiMessage.replace(/```json/g, "").replace(/```/g, "").trim();
       const decision = JSON.parse(cleanJson);
+      
       lastDecision = decision; 
+      
+      if (decision.reasoning) {
+        console.log(`%c🧠 AI Reasoning: ${decision.reasoning}`, "color: #eab308; font-weight: bold;");
+      }
+
       applyAmbience(decision);
       setDotState("dot-orch", "success"); 
     } catch (e) {
+      console.error("Failed to parse JSON:", e);
       setDotState("dot-orch", "error");
     }
   } catch (e) {
+    console.error("Fetch failed:", e);
     setDotState("dot-orch", "error");
   }
 }
@@ -1373,10 +1426,15 @@ const BG_LIVING_WORDS = /\b(people|person|persons|someone|somebody|man|men|woman
 function sanitizeBackgroundPrompt(prompt) {
   const clauses = String(prompt).split(",").map(c => c.trim()).filter(Boolean);
   const kept = clauses.filter(c => !BG_LIVING_WORDS.test(c));
+  if (kept.length !== clauses.length) {
+    console.warn("[Ambient] Removed living-being clauses from background prompt:", clauses.filter(c => BG_LIVING_WORDS.test(c)));
+  }
   return kept.join(", ");
 }
 
 function applyAmbience(decision) {
+  console.log("Applying Ambience:", decision);
+
   if (decision.background && decision.background.toLowerCase() !== "none") {
     const cleanedBg = sanitizeBackgroundPrompt(decision.background);
     if (cleanedBg && cleanedBg !== currentBackgroundPrompt) {
@@ -1386,9 +1444,14 @@ function applyAmbience(decision) {
   }
 
   if (decision.music && decision.music.toLowerCase() !== "none" && decision.music !== currentMusic) {
-    if (cachedAudio.includes(decision.music)) {
+    if (cachedAudio.length === 0) {
+      console.log("[Ambient] Music requested but no audio files are available — skipping.");
+    } else if (!cachedAudio.includes(decision.music)) {
+      console.warn("[Ambient] Music requested but not in audio folder:", decision.music);
+    } else {
       currentMusic = decision.music;
-      crossfadeAudio(chrome.runtime.getURL(currentMusic));
+      const newAudioUrl = chrome.runtime.getURL(currentMusic);
+      crossfadeAudio(newAudioUrl);
     }
   }
 
@@ -1420,52 +1483,75 @@ function applyAmbience(decision) {
 
 async function generateCloudflareBackground(prompt) {
   if (isGeneratingBg) return; 
+  
   const accountId = localStorage.getItem("ambient_cf_account");
   const cfToken = localStorage.getItem("ambient_cf_token");
   
+  if (!accountId || !cfToken) {
+    console.warn("⚠️ Cloudflare keys missing. Falling straight to Pollinations.");
+  }
+
   isGeneratingBg = true;
   setDotState("dot-cf", "loading");
   setDotState("dot-poll", "idle");
 
   try {
-    const response = await chrome.runtime.sendMessage({ action: "generate_image", prompt, accountId, apiToken: cfToken });
+    const response = await chrome.runtime.sendMessage({
+      action: "generate_image",
+      prompt: prompt,
+      accountId: accountId,
+      apiToken: cfToken
+    });
+
     if (!response.success) throw new Error(response.error);
 
-    if (response.provider === 'cloudflare') setDotState("dot-cf", "success");
-    else if (response.provider === 'pollinations') {
+    if (response.provider === 'cloudflare') {
+      setDotState("dot-cf", "success");
+    } else if (response.provider === 'pollinations') {
       setDotState("dot-cf", "error");
       setDotState("dot-poll", "loading");
     }
 
+    const imageUrl = response.imageUrl;
+    
     const img = new Image();
     img.onload = () => {
       isGeneratingBg = false;
       if (response.provider === 'pollinations') setDotState("dot-poll", "success");
+      
       const layer1 = document.getElementById("bg-layer-1");
       const layer2 = document.getElementById("bg-layer-2");
       const activeLayer = layer1.classList.contains("active") ? layer1 : layer2;
       const inactiveLayer = activeLayer === layer1 ? layer2 : layer1;
-      inactiveLayer.style.backgroundImage = `url("${response.imageUrl}")`;
+
+      inactiveLayer.style.backgroundImage = `url("${imageUrl}")`;
       void inactiveLayer.offsetWidth; 
+
       activeLayer.classList.remove("active");
       inactiveLayer.classList.add("active");
     };
+
     img.onerror = () => {
       isGeneratingBg = false;
       if (response.provider === 'cloudflare') setDotState("dot-cf", "error");
       if (response.provider === 'pollinations') setDotState("dot-poll", "error");
+      console.error("❌ Failed to load generated image into browser.");
     };
-    img.src = response.imageUrl;
+
+    img.src = imageUrl;
+
   } catch (error) {
     isGeneratingBg = false;
     setDotState("dot-cf", "error");
     setDotState("dot-poll", "error");
+    console.error("❌ Total image generation failure:", error);
   }
 }
 
 function crossfadeAudio(newUrl) {
   const audio = document.getElementById("ambient-audio-player");
   if (!audio) return;
+
   let vol = audio.volume;
   const fadeOutInterval = setInterval(() => {
     vol -= 0.05;
@@ -1474,18 +1560,27 @@ function crossfadeAudio(newUrl) {
       audio.volume = 0;
       audio.src = newUrl;
       audio.play().catch(e => console.log("Play blocked:", e));
+      
       let inVol = 0;
       const fadeInInterval = setInterval(() => {
         inVol += 0.05;
-        if (inVol >= 0.5) { clearInterval(fadeInInterval); audio.volume = 0.5; }
-        else audio.volume = inVol;
+        if (inVol >= 0.5) {
+          clearInterval(fadeInInterval);
+          audio.volume = 0.5;
+        } else {
+          audio.volume = inVol;
+        }
       }, 50);
-    } else audio.volume = vol;
+    } else {
+      audio.volume = vol;
+    }
   }, 50);
 }
 
+// --- WEATHER ENGINE ---
 function setWeather(effect, intensity) {
   currentEffect = effect;
+
   let intVal = Number(intensity);
   if (!isFinite(intVal)) intVal = currentIntensity;
   intVal = Math.max(0, Math.min(100, intVal));
@@ -1495,6 +1590,7 @@ function setWeather(effect, intensity) {
   const overlayOp = 0.15 + (intVal / 100) * 0.85;
   const cnt = (base) => Math.max(1, Math.round(base * mul));
 
+  console.log("Setting Weather:", effect, "| intensity:", intVal);
   canvas.style.opacity = 0;
   isAnimating = false;
   if (animationId) cancelAnimationFrame(animationId);
@@ -1508,8 +1604,12 @@ function setWeather(effect, intensity) {
     const lightningOverlay = document.getElementById("ambient-lightning-overlay");
     const lovelyHeartsOverlay = document.getElementById("ambient-lovely-hearts-overlay");
     const darknessOverlay = document.getElementById("ambient-darkness-overlay");
-    fogOverlay.style.opacity = 0; hazeOverlay.style.opacity = 0; fieryOverlay.style.opacity = 0;
-    lightningOverlay.style.opacity = 0; lovelyHeartsOverlay.style.opacity = 0; darknessOverlay.style.opacity = 0;
+    fogOverlay.style.opacity = 0;
+    hazeOverlay.style.opacity = 0;
+    fieryOverlay.style.opacity = 0;
+    lightningOverlay.style.opacity = 0;
+    lovelyHeartsOverlay.style.opacity = 0;
+    darknessOverlay.style.opacity = 0;
     if (lightningInterval) clearInterval(lightningInterval);
 
     if (effect === "none") { canvas.style.opacity = 1; return; }
@@ -1517,6 +1617,7 @@ function setWeather(effect, intensity) {
 
     if (effect === "fiery" || effect.startsWith("fire-")) {
       fieryOverlay.style.opacity = overlayOp;
+      
       const firePalette = FIRE_COLORS[effect] || FIRE_COLORS["fiery"];
       const hexToRgb = hex => {
          let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -1524,7 +1625,12 @@ function setWeather(effect, intensity) {
       };
       const mainRgb = hexToRgb(firePalette.main);
       const darkRgb = hexToRgb(firePalette.dark);
-      fieryOverlay.style.background = `radial-gradient(circle at 50% 110%, rgba(${mainRgb}, 0.65) 0%, transparent 60%), radial-gradient(circle at 50% 50%, transparent 40%, rgba(${darkRgb}, 0.55) 100%)`;
+      
+      fieryOverlay.style.background = `
+        radial-gradient(circle at 50% 110%, rgba(${mainRgb}, 0.65) 0%, transparent 60%),
+        radial-gradient(circle at 50% 50%, transparent 40%, rgba(${darkRgb}, 0.55) 100%)
+      `;
+
       for (let i = 0; i < cnt(80); i++) particles.push(new Particle(effect, intVal));
     } else if (effect === "thunderstorm") {
       for (let i = 0; i < cnt(200); i++) particles.push(new Particle("rain", intVal));
@@ -1578,7 +1684,8 @@ const MAGIC_COLORS = {
   "magic-gold": "#ffd36a", "magic-black": "#8b75ad"
 };
 const LEAF_COLORS = {
-  "leaf-orange": "#d99a48", "leaf-red": "#ef5263", "leaf-yellow": "#f5df62", "leaf-green": "#65c96b",
+  "leaf-orange": "#d99a48",
+  "leaf-red": "#ef5263", "leaf-yellow": "#f5df62", "leaf-green": "#65c96b",
   "leaf-cyan": "#55ded8", "leaf-blue": "#659cff", "leaf-purple": "#b38aff",
   "leaf-white": "#f5f4ff", "leaf-gold": "#e8b64d", "leaf-black": "#777184"
 };
@@ -1592,12 +1699,13 @@ const FIRE_COLORS = {
   "fire-purple":{ main: "#aa00ff", dark: "#220033" },
   "fire-pink":  { main: "#ff1493", dark: "#33001e" },
   "fire-white": { main: "#ffffff", dark: "#333333" },
-  "fire-black": { main: "#8a2be2", dark: "#050005" }
+  "fire-black": { main: "#8a2be2", dark: "#050005" } // dark shadowflame
 };
 
 class Particle {
   constructor(type, intensity = 80) {
     this.type = type;
+
     let intVal = Number(intensity);
     if (!isFinite(intVal)) intVal = 80;
     intVal = Math.max(0, Math.min(100, intVal));
@@ -1618,28 +1726,53 @@ class Particle {
     else if (type === "ember") this.color = FIRE_COLORS["fiery"].main;
 
     if (type === "rain") {
-      this.vy = (Math.random() * 10 + 15) * this.depth; this.vx = -3 * this.depth; this.length = (Math.random() * 20 + 10) * this.depth;
+      this.vy = (Math.random() * 10 + 15) * this.depth;
+      this.vx = -3 * this.depth;
+      this.length = (Math.random() * 20 + 10) * this.depth;
     } else if (type === "snow") {
-      this.vy = (Math.random() * 1.5 + 1) * this.depth; this.vx = (Math.random() - 0.5) * this.depth;
+      this.vy = (Math.random() * 1.5 + 1) * this.depth;
+      this.vx = (Math.random() - 0.5) * this.depth;
     } else if (type === "blizzard") {
-      this.vy = (Math.random() * 5 + 4) * this.depth; this.vx = (Math.random() * 6 - 3) * this.depth;
+      this.vy = (Math.random() * 5 + 4) * this.depth;
+      this.vx = (Math.random() * 6 - 3) * this.depth;
     } else if (type === "ember" || type === "fiery" || type.startsWith("fire-")) {
       const spawnSide = Math.random();
       if (spawnSide < 0.4) {
-        this.x = Math.random() * canvas.width; this.y = canvas.height + 20; this.vx = (Math.random() - 0.5) * this.depth * 1.5; this.vy = -(Math.random() * 2 + 1) * this.depth;
+        this.x = Math.random() * canvas.width;
+        this.y = canvas.height + 20;
+        this.vx = (Math.random() - 0.5) * this.depth * 1.5;
+        this.vy = -(Math.random() * 2 + 1) * this.depth;
       } else if (spawnSide < 0.7) {
-        this.x = -20; this.y = Math.random() * canvas.height; this.vx = (Math.random() * 2 + 1) * this.depth; this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
+        this.x = -20;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() * 2 + 1) * this.depth;
+        this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
       } else {
-        this.x = canvas.width + 20; this.y = Math.random() * canvas.height; this.vx = -(Math.random() * 2 + 1) * this.depth; this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
+        this.x = canvas.width + 20;
+        this.y = Math.random() * canvas.height;
+        this.vx = -(Math.random() * 2 + 1) * this.depth;
+        this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
       }
     } else if (type === "wind") {
-      this.x = Math.random() * canvas.width; this.vx = (Math.random() * 3 + 2) * this.depth; this.vy = (Math.random() - 0.5) * 0.5; this.length = (Math.random() * 65 + 30) * this.depth;
+      this.x = Math.random() * canvas.width;
+      this.vx = (Math.random() * 3 + 2) * this.depth;
+      this.vy = (Math.random() - 0.5) * 0.5;
+      this.length = (Math.random() * 65 + 30) * this.depth;
     } else if (type === "petal-pink" || type === "leaf-orange" || type === "petals" || type === "leaves" || type.startsWith("leaf-")) {
-      this.vy = (Math.random() * 1.8 + 0.5) * this.depth; this.vx = (Math.random() * 2 - 1) * this.depth; this.rotation = Math.random() * Math.PI * 2; this.rotationSpeed = (Math.random() - 0.5) * 0.08;
+      this.vy = (Math.random() * 1.8 + 0.5) * this.depth;
+      this.vx = (Math.random() * 2 - 1) * this.depth;
+      this.rotation = Math.random() * Math.PI * 2;
+      this.rotationSpeed = (Math.random() - 0.5) * 0.08;
     } else if (type === "lovely-hearts") {
-      this.y = canvas.height + Math.random() * canvas.height; this.vy = -(Math.random() * 1.15 + 0.35) * this.depth; this.vx = (Math.random() - 0.5) * 0.45; this.radius = Math.random() * 5 + 4; this.opacity = (Math.random() * 0.28 + 0.12) * this.opacityMul;
+      this.y = canvas.height + Math.random() * canvas.height;
+      this.vy = -(Math.random() * 1.15 + 0.35) * this.depth;
+      this.vx = (Math.random() - 0.5) * 0.45;
+      this.radius = Math.random() * 5 + 4;
+      this.opacity = (Math.random() * 0.28 + 0.12) * this.opacityMul;
     } else if (type === "stars" || type === "aurora" || type.startsWith("magic-")) {
-      this.vy = -(Math.random() * 0.8 + 0.15) * this.depth; this.vx = (Math.random() - 0.5) * 0.7; this.radius = Math.random() * (type === "stars" ? 2.4 : 3.1) + 0.8;
+      this.vy = -(Math.random() * 0.8 + 0.15) * this.depth;
+      this.vx = (Math.random() - 0.5) * 0.7;
+      this.radius = Math.random() * (type === "stars" ? 2.4 : 3.1) + 0.8;
     }
 
     if (this.vx !== undefined) this.vx *= this.speedMul;
@@ -1649,7 +1782,9 @@ class Particle {
   }
 
   update() {
-    this.x += this.vx; this.y += this.vy; this.phase += this.swaySpeed;
+    this.x += this.vx;
+    this.y += this.vy;
+    this.phase += this.swaySpeed;
     if (this.type === "snow" || this.type === "blizzard" || this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
       this.x += Math.sin(this.phase) * ((this.type === "leaf-orange" || this.type === "leaves" || this.type.startsWith("leaf-")) ? 1.8 : 1.1);
       if (this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) this.rotation += this.rotationSpeed;
@@ -1673,24 +1808,38 @@ class Particle {
       ctx.fillStyle = `rgba(255,255,255,${this.depth * 0.8 * this.opacityMul})`; ctx.shadowBlur = this.depth * 8; ctx.shadowColor = "white"; ctx.fill();
     } else if (this.type === "ember" || this.type === "fiery" || this.type.startsWith("fire-")) {
       ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = this.color; ctx.shadowBlur = 12; ctx.shadowColor = this.color; ctx.globalAlpha = this.opacity; ctx.fill();
+      ctx.fillStyle = this.color; 
+      ctx.shadowBlur = 12; 
+      ctx.shadowColor = this.color; 
+      ctx.globalAlpha = this.opacity;
+      ctx.fill();
     } else if (this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
       ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
       ctx.fillStyle = (this.type === "petal-pink" || this.type === "petals") ? `rgba(255,159,206,${this.opacity})` : (this.type === "leaf-orange" || this.type === "leaves") ? `rgba(${190 + Math.floor(Math.random()*50)},${100 + Math.floor(Math.random()*70)},45,${this.opacity})` : this.color;
       ctx.globalAlpha = this.opacity;
-      ctx.beginPath(); ctx.moveTo(-this.radius * 1.8, 0); ctx.quadraticCurveTo(-this.radius * 0.4, -this.radius * 1.25, this.radius * 1.8, 0); ctx.quadraticCurveTo(this.radius * 0.4, this.radius * 1.25, -this.radius * 1.8, 0); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(-this.radius * 1.5, 0); ctx.lineTo(this.radius * 1.45, 0); ctx.strokeStyle = this.color; ctx.globalAlpha = this.opacity * 0.6; ctx.lineWidth = 0.6; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-this.radius * 1.8, 0);
+      ctx.quadraticCurveTo(-this.radius * 0.4, -this.radius * 1.25, this.radius * 1.8, 0);
+      ctx.quadraticCurveTo(this.radius * 0.4, this.radius * 1.25, -this.radius * 1.8, 0);
+      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-this.radius * 1.5, 0); ctx.lineTo(this.radius * 1.45, 0);
+      ctx.strokeStyle = this.color; ctx.globalAlpha = this.opacity * 0.6; ctx.lineWidth = 0.6; ctx.stroke();
     } else if (this.type === "lovely-hearts") {
-      ctx.translate(this.x, this.y); ctx.globalAlpha = this.opacity * (0.8 + Math.sin(this.phase) * 0.2);
+      ctx.translate(this.x, this.y);
+      ctx.globalAlpha = this.opacity * (0.8 + Math.sin(this.phase) * 0.2);
       ctx.fillStyle = this.color; ctx.shadowColor = "#ff7db9"; ctx.shadowBlur = 8;
       const r = this.radius;
-      ctx.beginPath(); ctx.moveTo(0, r * 0.85); ctx.bezierCurveTo(-r * 1.8, -r * 0.25, -r * 0.85, -r * 1.45, 0, -r * 0.55); ctx.bezierCurveTo(r * 0.85, -r * 1.45, r * 1.8, -r * 0.25, 0, r * 0.85); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, r * 0.85);
+      ctx.bezierCurveTo(-r * 1.8, -r * 0.25, -r * 0.85, -r * 1.45, 0, -r * 0.55);
+      ctx.bezierCurveTo(r * 0.85, -r * 1.45, r * 1.8, -r * 0.25, 0, r * 0.85);
+      ctx.fill();
     } else if (this.type === "stars" || this.type === "aurora" || this.type.startsWith("magic-")) {
       const color = this.type === "stars" ? "#fff4bf" : this.type === "aurora" ? (Math.random() > 0.5 ? "#71ffd5" : "#9c83ff") : this.color;
       ctx.globalAlpha = this.opacity * (0.65 + Math.sin(this.phase) * 0.35);
       ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = this.type === "stars" ? 9 : 13;
       if (this.type.startsWith("magic-") && Math.random() > 0.58) {
-        ctx.translate(this.x, this.y); ctx.rotate(Math.PI / 4 + this.phase * 0.15); ctx.fillRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
+        ctx.translate(this.x, this.y); ctx.rotate(Math.PI / 4 + this.phase * 0.15);
+        ctx.fillRect(-this.radius, -this.radius, this.radius * 2, this.radius * 2);
       } else {
         ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2); ctx.fill();
         if (this.type === "stars") { ctx.beginPath(); ctx.moveTo(this.x - 5, this.y); ctx.lineTo(this.x + 5, this.y); ctx.moveTo(this.x, this.y - 5); ctx.lineTo(this.x, this.y + 5); ctx.strokeStyle = color; ctx.lineWidth = 0.8; ctx.stroke(); }
