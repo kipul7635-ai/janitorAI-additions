@@ -355,3 +355,118 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
 #new-color-input::-webkit-color-swatch-wrapper { padding: 0; }
 #new-color-input::-webkit-color-swatch { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; }
 #new-color-input::-moz-color-swatch { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; }
+
+/* ===== VISUAL NOVEL DISPLAY ENGINE ===== */
+/* 1. Hide the standard chat list when VN engine is on */
+body.ambient-engine-vn li[class*="messageDisplayWrapper"] {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    z-index: -1 !important;
+}
+
+/* 2. Input box transparency */
+body.ambient-engine-vn form,
+body.ambient-engine-vn ._chatInputInner_or9hd_30 {
+    opacity: 0.2;
+    transition: opacity 0.3s ease;
+}
+body.ambient-engine-vn form:focus-within,
+body.ambient-engine-vn ._chatInputInner_or9hd_30:focus-within,
+body.ambient-engine-vn textarea:focus {
+    opacity: 1 !important;
+}
+
+/* 3. The VN Box */
+#ambient-vn-box {
+    display: none;
+    position: fixed;
+    bottom: 130px; /* Adjust based on Janitor's input box height */
+    left: 5%;
+    width: 90%;
+    max-width: 900px;
+    transform: translateX(-50%);
+    left: 50%;
+    height: auto;
+    min-height: 150px;
+    background: rgba(10, 10, 12, 0.85);
+    backdrop-filter: blur(12px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.6);
+    z-index: 100005;
+    padding: 20px;
+    box-sizing: border-box;
+    flex-direction: row;
+    gap: 20px;
+    cursor: pointer;
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+#ambient-vn-box:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.vn-box-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100px;
+    flex-shrink: 0;
+}
+
+#vn-box-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    background: #000;
+}
+
+#vn-box-name {
+    margin-top: 8px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
+}
+
+.vn-box-right {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    overflow-y: auto;
+    padding-right: 10px;
+}
+
+#vn-box-text {
+    font-size: 18px;
+    line-height: 1.6;
+    color: #e4e4e7;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.9);
+    font-family: inherit;
+    width: 100%;
+}
+
+/* Ensure typewriter words display nicely in VN box */
+#vn-box-text .vn-typeword {
+    white-space: pre-wrap;
+}
+
+/* Fix VN Buttons overlapping the box */
+body.ambient-engine-vn #vn-continue-btn {
+    bottom: 300px; /* Pushed up above the box */
+}
+body.ambient-engine-vn #vn-back-btn {
+    bottom: 300px;
+}
+body.ambient-engine-vn #vn-paragraph-indicator {
+    bottom: 312px;
+}
