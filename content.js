@@ -10,7 +10,7 @@ let canvas, ctx;
 let animationId = null;
 let particles = [];
 let currentEffect = "none";
-let currentIntensity = 80;   // ===== NEW: 0-100 effect intensity =====
+let currentIntensity = 80;   // 0-100 effect intensity
 let lightningInterval = null;
 let currentBackgroundPrompt = "";
 let currentMusic = "";
@@ -371,7 +371,16 @@ function listAudioFilesViaIframe() {
         <option value="rain">rain</option>
         <option value="fog">fog</option>
         <option value="thunderstorm">thunderstorm</option>
-        <option value="fiery">fiery</option>
+        <option value="fiery">fiery (default orange)</option>
+        <option value="fire-red">fiery — red</option>
+        <option value="fire-yellow">fiery — yellow</option>
+        <option value="fire-green">fiery — green</option>
+        <option value="fire-blue">fiery — blue</option>
+        <option value="fire-cyan">fiery — cyan</option>
+        <option value="fire-purple">fiery — purple</option>
+        <option value="fire-pink">fiery — pink</option>
+        <option value="fire-white">fiery — white</option>
+        <option value="fire-black">fiery — shadow</option>
         <option value="snow">snow</option>
         <option value="blizzard">blizzard</option>
         <option value="petals">cherry blossom petals</option>
@@ -515,7 +524,6 @@ function listAudioFilesViaIframe() {
   
   applyVisualSettings(savedBlur, savedDim);
 
-  // ===== NEW: Effect intensity =====
   const savedIntensity = localStorage.getItem("ambient_intensity") || "80";
   document.getElementById("set-intensity").value = savedIntensity;
   document.getElementById("intensity-val").textContent = savedIntensity;
@@ -578,7 +586,7 @@ function listAudioFilesViaIframe() {
 
   vnCheckbox.addEventListener("change", (e) => {
     localStorage.setItem("ambient_vn_mode", e.target.checked);
-    if (!e.target.checked) vnReset();   // switching it off un-hides everything straight away
+    if (!e.target.checked) vnReset();
   });
 
   vnTypewriterCheckbox.addEventListener("change", (e) => {
@@ -598,7 +606,7 @@ function listAudioFilesViaIframe() {
   });
 
   document.getElementById("manual-audio").addEventListener("change", (e) => {
-    if (!e.target.value) return;   // CHANGED: ignore the disabled "(no audio)" placeholder
+    if (!e.target.value) return;
     applyAmbience({ music: e.target.value });
   });
 
@@ -607,7 +615,6 @@ function listAudioFilesViaIframe() {
     applyAmbience({ effect: e.target.value, intensity: intensity });
   });
 
-  // ===== NEW: intensity slider (live re-render in manual mode, debounced) =====
   let intensityDebounce = null;
   document.getElementById("set-intensity").addEventListener("input", (e) => {
     localStorage.setItem("ambient_intensity", e.target.value);
@@ -628,7 +635,7 @@ function listAudioFilesViaIframe() {
     localStorage.setItem("ambient_cf_token", document.getElementById("set-cf-token").value.trim());
     localStorage.setItem("ambient_blur", document.getElementById("set-blur").value);
     localStorage.setItem("ambient_dim", document.getElementById("set-dim").value);
-    localStorage.setItem("ambient_intensity", document.getElementById("set-intensity").value); // ===== NEW =====
+    localStorage.setItem("ambient_intensity", document.getElementById("set-intensity").value);
     settingsMenu.style.display = "none";
   });
 
@@ -664,8 +671,6 @@ function listAudioFilesViaIframe() {
     if (request.action !== "chat_updated") return;
     if (!isChatPage() || isCuttingMessage || Date.now() < vn.ignoreSignalsUntil) return;
 
-    // Visual novel mode: a bot message was just saved -> start revealing it paragraph by paragraph.
-    // (Manual mode used to return before reaching this, which silently disabled VN mode.)
     if (vnEnabled()) {
       vn.pending = true;
       vn.pendingSince = Date.now();
@@ -673,7 +678,6 @@ function listAudioFilesViaIframe() {
       queueVNSync();
     }
 
-    // Ambient engine (not in manual mode)
     if (localStorage.getItem("ambient_manual_mode") === "true") return;
     clearTimeout(networkDebounce);
     networkDebounce = setTimeout(() => {
@@ -695,7 +699,6 @@ function listAudioFilesViaIframe() {
   document.addEventListener("keydown", (e) => {
     if (!e.isTrusted || e.key !== "Enter" || e.shiftKey || e.isComposing) return;
     const t = e.target;
-    // The main chat box only (the old code matched a hashed class name that changes on every Janitor deploy)
     if (t && t.tagName === "TEXTAREA" && !t.closest("li")) handleIntercept(e);
   }, true);
 
@@ -703,8 +706,6 @@ function listAudioFilesViaIframe() {
 })();
 
 // ===== VISUAL NOVEL ENGINE =====
-
-// Run DOM changes without our own MutationObserver reacting to them.
 function vnMutate(fn) {
   if (vnObserver) vnObserver.disconnect();
   try { fn(); } finally { if (vnObserver) vnObserver.observe(document.body, VN_OBS_OPTS); }
@@ -717,9 +718,9 @@ function queueVNSync() {
 }
 
 function startVNObserver() {
-  vnObserver = new MutationObserver(queueVNSync);   // React re-renders / streaming / swipes all land here
+  vnObserver = new MutationObserver(queueVNSync);
   vnObserver.observe(document.body, VN_OBS_OPTS);
-  setInterval(queueVNSync, 1000);                   // safety net (also catches SPA navigation)
+  setInterval(queueVNSync, 1000);
 }
 
 function clearHidden() {
@@ -739,8 +740,6 @@ function vnReset() {
   if (back) back.style.display = "none";
 }
 
-// The message being revealed: the remembered <li> if it is still on the page, otherwise (React
-// re-mounted it / the list was virtualised away and back) the last <li> if its text matches.
 function findVNMessage(items) {
   if (vn.msgEl && vn.msgEl.isConnected) return vn.msgEl;
   const last = items[items.length - 1];
@@ -784,17 +783,14 @@ function finishVNTypewriter() {
   vnTypingFast = false;
 }
 
-// Extra pause (ms) after a word, based on the punctuation it ends with.
-// Closing quotes / brackets / markdown asterisks after the punctuation are ignored,
-// so  "Wait."*  still counts as a full stop.
 function vnPunctuationPause(raw) {
   const w = raw.replace(/[\s"'\u201d\u2019\u00bb)\]}*_~`]+$/g, "");
   if (!w) return 0;
-  if (/^(mr|mrs|ms|dr|st|prof|sr|jr|vs|etc|e\.g|i\.e)\.$/i.test(w)) return 0; // abbreviations aren't sentence ends
-  if (/(\.{2,}|\u2026)$/.test(w)) return 780;   // ellipsis: a proper trailing-off beat
+  if (/^(mr|mrs|ms|dr|st|prof|sr|jr|vs|etc|e\.g|i\.e)\.$/i.test(w)) return 0;
+  if (/(\.{2,}|\u2026)$/.test(w)) return 780;
   if (/[?!]{2,}$|[?!]\.+$/.test(w)) return 680;
-  if (/[.!?]$/.test(w)) return 540;              // end of sentence
-  if (/(\u2014|\u2013|--)$/.test(w)) return 280; // dash
+  if (/[.!?]$/.test(w)) return 540;
+  if (/(\u2014|\u2013|--)$/.test(w)) return 280;
   if (/[;:]$/.test(w)) return 320;
   if (/,$/.test(w)) return 200;
   return 0;
@@ -802,7 +798,6 @@ function vnPunctuationPause(raw) {
 
 function startVNTypewriter(block) {
   stopVNTypewriter();
-  // Split existing text nodes into word spans while preserving surrounding formatting.
   const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
@@ -836,24 +831,21 @@ function startVNTypewriter(block) {
     vnTypingIndex++;
     const text = word.textContent;
     let pause = Number(localStorage.getItem("ambient_vn_typewriter_speed") || 45);
-    pause += Math.max(0, text.length - 6) * 4;                       // long words take a touch longer
-    pause += vnPunctuationPause(text) * (vnPunctPercent() / 100);    // linger on punctuation
-    pause *= 0.88 + Math.random() * 0.24;                            // slight jitter so it feels less mechanical
+    pause += Math.max(0, text.length - 6) * 4;
+    pause += vnPunctuationPause(text) * (vnPunctPercent() / 100);
+    pause *= 0.88 + Math.random() * 0.24;
     if (vnTypingFast) pause = Math.min(8, pause / 8);
     vnTypingTimer = setTimeout(tick, pause);
   };
   tick();
 }
 
-// VN-style tap-to-finish: while a paragraph is typing, a tap anywhere completes it.
 document.addEventListener("pointerdown", e => {
   if (!vnTypingBlock) return;
-  // Don't intercept taps on settings, inputs, or the navigation/restore controls.
   if (e.target.closest("#ambient-settings-menu, #ambient-settings-btn, #vn-continue-btn, #vn-back-btn, #vn-restore-btn, input, textarea, button, select, a")) return;
   finishVNTypewriter();
 }, true);
 
-// Show paragraphs [0, vn.revealed), hide the rest. Safe to call as often as we like.
 function applyVN(blocks) {
   const btn = document.getElementById("vn-continue-btn");
   const back = document.getElementById("vn-back-btn");
@@ -878,8 +870,6 @@ function applyVN(blocks) {
   if (indicator) { indicator.textContent = `${vn.revealed} / ${blocks.length}`; indicator.style.display = blocks.length ? "block" : "none"; }
 }
 
-// Called (throttled) on every DOM change. Starts a reveal when a bot message was just saved, and
-// keeps the hidden/visible state correct if React redraws the message underneath us.
 function vnSync() {
   vnSyncQueued = false;
   if (isCuttingMessage) return;
@@ -895,7 +885,7 @@ function vnSync() {
     if (Date.now() - vn.pendingSince > 15000) { vn.pending = false; vnLog("gave up waiting for the new message"); return; }
     const last = items[items.length - 1];
     const blocks = last ? getVNBlocks(last) : [];
-    if (!blocks.length) return;                       // not rendered yet - the observer will call us again
+    if (!blocks.length) return;
     vn.pending = false;
     vn.active = true;
     vn.msgEl = last;
@@ -908,14 +898,13 @@ function vnSync() {
   }
 
   let li = findVNMessage(items);
-  if (!li) {                                           // message scrolled out of the list; state is kept
+  if (!li) {
     btn.style.display = "none";
     const back = document.getElementById("vn-back-btn");
     if (back) back.style.display = "none";
     return;
   }
 
-  // We started on the user's own message because the bot's one wasn't in the DOM yet -> retry.
   if (Date.now() - vn.startedAt < 4000 && li === vn.msgEl && items[items.length - 1] !== li) {
     vnLog("a newer message showed up right after start, retrying");
     vnReset();
@@ -936,14 +925,13 @@ function advanceVNText() {
   if (!vn.active) return;
   const li = findVNMessage(getMessageItems());
   if (!li) return;
-  const blocks = getVNBlocks(li);              // includes hidden paragraphs, so this can actually reveal them
+  const blocks = getVNBlocks(li);
   vn.revealed = Math.min(vn.revealed + 1, blocks.length);
   applyVN(blocks);
   const shown = blocks[vn.revealed - 1];
   if (shown) shown.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-// Reverse of advanceVNText: hide the newest paragraph again (never below the first one).
 function retreatVNText() {
   if (!vn.active) return;
   const li = findVNMessage(getMessageItems());
@@ -955,7 +943,6 @@ function retreatVNText() {
   if (shown) shown.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-// Restore the original full text of the most recently cut bot message.
 async function restoreLastCutMessage() {
   if (!vn.restoreData) return;
   const li = getMessageItems().pop();
@@ -977,7 +964,6 @@ async function restoreLastCutMessage() {
   showVnToast("↶ Original message restored.", false);
 }
 
-// ===== CUT THE MESSAGE WHEN THE USER SENDS EARLY =====
 async function cancelEdit(li) {
   const cancel = findButton(li, "cancel");
   if (cancel) cancel.click();
@@ -988,7 +974,6 @@ async function cancelEdit(li) {
   await sleep(300);
 }
 
-// Returns { ok, reason?, unchanged? }. Never leaves the message stuck in edit mode.
 async function cutMessage(li, blocks) {
   const visibleTexts = blocks.slice(0, vn.revealed).map(b => b.textContent);
   const total = blocks.length;
@@ -1020,7 +1005,6 @@ async function cutMessage(li, blocks) {
   if (!newText) { await cancelEdit(cur()); return { ok: false, reason: "cut would have been empty" }; }
   if (newText.length >= raw.trimEnd().length) { await cancelEdit(cur()); return { ok: true, unchanged: true }; }
 
-  // Optional "cut in" note so the character knows the user interrupted
   let finalText = newText;
   if (vnCutNoteEnabled()) {
     const note = vnCutNoteText();
@@ -1029,7 +1013,7 @@ async function cutMessage(li, blocks) {
 
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
   ta.focus();
-  setter.call(ta, finalText);                              // React-safe
+  setter.call(ta, finalText);
   ta.dispatchEvent(new Event("input", { bubbles: true }));
   ta.dispatchEvent(new Event("change", { bubbles: true }));
   await sleep(400);
@@ -1038,7 +1022,7 @@ async function cutMessage(li, blocks) {
   if (saveBtn) saveBtn.click();
   else ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
 
-  for (let i = 0; i < 40; i++) {                          // wait for edit mode to close (max ~4s)
+  for (let i = 0; i < 40; i++) {
     await sleep(100);
     const c = cur();
     if (!c || !c.querySelector("textarea")) break;
@@ -1048,21 +1032,21 @@ async function cutMessage(li, blocks) {
     await cancelEdit(c);
     return { ok: false, reason: "saving the edit didn't go through" };
   }
-  await sleep(500);                                       // let the re-render settle
+  await sleep(500);
   return { ok: true };
 }
 
 async function handleIntercept(e) {
-  if (vnBypass) return;                                   // our own auto-send
-  if (isCuttingMessage) { e.preventDefault(); e.stopPropagation(); return; }   // swallow double-clicks mid-cut
+  if (vnBypass) return;
+  if (isCuttingMessage) { e.preventDefault(); e.stopPropagation(); return; }
   if (!vnEnabled() || !isChatPage() || !vn.active) return;
 
   const li = findVNMessage(getMessageItems());
   if (!li) return;
   const blocks = getVNBlocks(li);
-  if (vn.revealed >= blocks.length) return;               // already read everything -> normal send
+  if (vn.revealed >= blocks.length) return;
 
-  e.preventDefault();                                     // must happen before the first await
+  e.preventDefault();
   e.stopPropagation();
   isCuttingMessage = true;
   const btn = document.getElementById("vn-continue-btn");
@@ -1077,7 +1061,7 @@ async function handleIntercept(e) {
 
   vn.ignoreSignalsUntil = Date.now() + 3000;
   isCuttingMessage = false;
-  vnReset();                                              // un-hide everything; the message is now exactly what was read
+  vnReset();
 
   if (!result.ok) {
     showVnToast("✂️ Not cut: " + result.reason, true);
@@ -1105,7 +1089,6 @@ async function handleIntercept(e) {
   showVnToast(result.unchanged ? "Hit Send again." : `✂️ Cut after paragraph ${readCount}/${blocks.length}. Hit Send again.`, false);
 }
 
-// --- HELPER: Dot State Logic ---
 function setDotState(dotId, state) {
   const dot = document.getElementById(dotId);
   if (!dot) return;
@@ -1117,13 +1100,11 @@ function setDotState(dotId, state) {
   }
 }
 
-// --- HELPER: Live Visual Settings ---
 function applyVisualSettings(blur, dim) {
   document.documentElement.style.setProperty('--ambient-blur', `${blur}px`);
   document.documentElement.style.setProperty('--ambient-dim', dim / 100);
 }
 
-// ===== CHANGED: friendlier labels + graceful empty state =====
 function populateManualDropdowns() {
   const audioSelect = document.getElementById("manual-audio");
   if (!audioSelect) return;
@@ -1138,7 +1119,6 @@ function populateManualDropdowns() {
     return `<option value="${aud}">${label}</option>`;
   }).join('');
 }
-// ===== END CHANGED =====
 
 function resizeCanvas() {
   if (canvas) {
@@ -1147,7 +1127,6 @@ function resizeCanvas() {
   }
 }
 
-// --- SCRAPER ---
 function getLatestChatContext() {
   const messages = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   if (messages.length === 0) return null;
@@ -1163,7 +1142,6 @@ function getLatestChatContext() {
   return contextText.trim();
 }
 
-// --- AI FUNCTION ---
 async function askAI(chatText, availableAudio, apiKey) {
   setDotState("dot-orch", "loading"); 
   const model = localStorage.getItem("ambient_model") || "nvidia/nemotron-3-ultra-550b-a55b:free";
@@ -1194,7 +1172,7 @@ async function askAI(chatText, availableAudio, apiKey) {
 
   CRITICAL RULES FOR WEATHER EFFECTS:
   1. Outdoor weather (rain, snow, thunderstorm, blizzard) must ONLY be used if the characters are currently outside. If they are indoors, output "none" for the effect.
-  2. "fog" and "fiery" can be used indoors or outdoors if contextually appropriate.
+  2. "fog" and the fire effects ("fiery" or any "fire-*" variant) can be used indoors or outdoors if contextually appropriate.
 
   CRITICAL RULES FOR INTENSITY:
   "intensity" is an integer from 0 to 100 that controls how strong the "effect" is.
@@ -1207,8 +1185,8 @@ async function askAI(chatText, availableAudio, apiKey) {
   Always output a number for intensity, even when effect is "none"; it will be ignored in that case.
 
   Available music: ${JSON.stringify(availableAudio)}
-  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "snow", "blizzard", "petals", "leaves", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
-  Magical color effects, stardust, aurora, and lovely hearts can be used indoors or outdoors when the scene supports them. Petals and colored leaves should fit the setting; darkness is a dramatic low-light overlay. Keep all effects subtle enough not to obscure chat text.${memoryPrompt}`;
+  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petals", "leaves", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
+  Magical color effects, stardust, aurora, and lovely hearts can be used indoors or outdoors when the scene supports them. Petals, colored leaves, and colored fire should fit the setting; darkness is a dramatic low-light overlay. Keep all effects subtle enough not to obscure chat text.${memoryPrompt}`;
 
   console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold;");
   console.log(chatText);
@@ -1257,10 +1235,6 @@ async function askAI(chatText, availableAudio, apiKey) {
   }
 }
 
-// ===== CHANGED: audio safeguard in applyAmbience =====
-// --- AMBIENCE ENGINE ---
-// Safety net for the image prompt: the orchestrator is often a small free model and may still slip a
-// person or animal into the scene. Drop any comma-separated clause that mentions a living being / lookalike.
 const BG_LIVING_WORDS = /\b(people|person|persons|someone|somebody|man|men|woman|women|girl|girls|boy|boys|child|children|kid|kids|human|humans|figure|figures|silhouette|silhouettes|crowd|crowds|character|characters|couple|stranger|strangers|traveler|travelers|traveller|travellers|pedestrian|pedestrians|villager|villagers|animal|animals|bird|birds|cat|cats|dog|dogs|horse|horses|creature|creatures|insect|insects|butterfly|butterflies|statue|statues|portrait|portraits|mannequin|mannequins|doll|dolls)\b/i;
 function sanitizeBackgroundPrompt(prompt) {
   const clauses = String(prompt).split(",").map(c => c.trim()).filter(Boolean);
@@ -1284,10 +1258,8 @@ function applyAmbience(decision) {
 
   if (decision.music && decision.music.toLowerCase() !== "none" && decision.music !== currentMusic) {
     if (cachedAudio.length === 0) {
-      // Safeguard: audio/ folder is empty (or unreadable) -> never try to play anything.
       console.log("[Ambient] Music requested but no audio files are available — skipping.");
     } else if (!cachedAudio.includes(decision.music)) {
-      // Safeguard: AI hallucinated a filename that isn't in the folder.
       console.warn("[Ambient] Music requested but not in audio folder:", decision.music);
     } else {
       currentMusic = decision.music;
@@ -1296,7 +1268,6 @@ function applyAmbience(decision) {
     }
   }
 
-  // ===== CHANGED: use intensity (from AI, or from the manual slider as a fallback) =====
   if (decision.effect) {
     const newIntensity = (decision.intensity !== undefined && decision.intensity !== null)
       ? Number(decision.intensity)
@@ -1307,9 +1278,7 @@ function applyAmbience(decision) {
     }
   }
 }
-// ===== END CHANGED =====
 
-// --- IMAGE GENERATOR (Cloudflare -> Pollinations) ---
 async function generateCloudflareBackground(prompt) {
   if (isGeneratingBg) return; 
   
@@ -1377,7 +1346,6 @@ async function generateCloudflareBackground(prompt) {
   }
 }
 
-// --- AUDIO CROSSFADER ---
 function crossfadeAudio(newUrl) {
   const audio = document.getElementById("ambient-audio-player");
   if (!audio) return;
@@ -1408,7 +1376,6 @@ function crossfadeAudio(newUrl) {
 }
 
 // --- WEATHER ENGINE ---
-// ===== CHANGED: full intensity support =====
 function setWeather(effect, intensity) {
   currentEffect = effect;
 
@@ -1417,9 +1384,8 @@ function setWeather(effect, intensity) {
   intVal = Math.max(0, Math.min(100, intVal));
   currentIntensity = intVal;
 
-  // 0-100 mapped to useful multipliers
-  const mul       = 0.15 + (intVal / 100) * 1.15;    // 0.15 .. 1.30 particle count
-  const overlayOp = 0.15 + (intVal / 100) * 0.85;    // 0.15 .. 1.00 overlay opacity
+  const mul       = 0.15 + (intVal / 100) * 1.15;
+  const overlayOp = 0.15 + (intVal / 100) * 0.85;
   const cnt = (base) => Math.max(1, Math.round(base * mul));
 
   console.log("Setting Weather:", effect, "| intensity:", intVal);
@@ -1447,15 +1413,29 @@ function setWeather(effect, intensity) {
     if (effect === "none") { canvas.style.opacity = 1; return; }
     if (effect === "fog")  { fogOverlay.style.opacity = overlayOp; canvas.style.opacity = 1; return; }
 
-    if (effect === "fiery") {
+    if (effect === "fiery" || effect.startsWith("fire-")) {
       fieryOverlay.style.opacity = overlayOp;
-      for (let i = 0; i < cnt(80); i++) particles.push(new Particle("ember", intVal));
+      
+      // Dynamically set the vignette gradient colors based on the variant
+      const firePalette = FIRE_COLORS[effect] || FIRE_COLORS["fiery"];
+      const hexToRgb = hex => {
+         let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+         return `${r},${g},${b}`;
+      };
+      const mainRgb = hexToRgb(firePalette.main);
+      const darkRgb = hexToRgb(firePalette.dark);
+      
+      fieryOverlay.style.background = `
+        radial-gradient(circle at 50% 110%, rgba(${mainRgb}, 0.65) 0%, transparent 60%),
+        radial-gradient(circle at 50% 50%, transparent 40%, rgba(${darkRgb}, 0.55) 100%)
+      `;
+
+      for (let i = 0; i < cnt(80); i++) particles.push(new Particle(effect, intVal));
     } else if (effect === "thunderstorm") {
       for (let i = 0; i < cnt(200); i++) particles.push(new Particle("rain", intVal));
-      // Higher intensity = more frequent + brighter flashes
-      const interval = Math.max(700, 4200 - intVal * 32);   // ~3870ms @10 → ~1000ms @100
-      const chance   = 0.4 + (intVal / 100) * 0.5;          // 0.4 .. 0.9
-      const maxFlash = 0.15 + (intVal / 100) * 0.4;         // 0.15 .. 0.55
+      const interval = Math.max(700, 4200 - intVal * 32);
+      const chance   = 0.4 + (intVal / 100) * 0.5;
+      const maxFlash = 0.15 + (intVal / 100) * 0.4;
       lightningInterval = setInterval(() => {
         if (currentEffect !== "thunderstorm" || Math.random() > chance) return;
         lightningOverlay.style.opacity = Math.random() * maxFlash * 0.7 + maxFlash * 0.3;
@@ -1495,7 +1475,6 @@ function setWeather(effect, intensity) {
     canvas.style.opacity = 1;
   }, 250);
 }
-// ===== END CHANGED =====
 
 const MAGIC_COLORS = {
   "magic-red": "#ff4568", "magic-orange": "#ff9d42", "magic-yellow": "#ffe66d",
@@ -1508,17 +1487,29 @@ const LEAF_COLORS = {
   "leaf-cyan": "#55ded8", "leaf-blue": "#659cff", "leaf-purple": "#b38aff",
   "leaf-white": "#f5f4ff", "leaf-gold": "#e8b64d", "leaf-black": "#777184"
 };
+// ===== NEW: Fire Color Variants =====
+const FIRE_COLORS = {
+  "fiery":      { main: "#ff5e00", dark: "#330800" },
+  "fire-red":   { main: "#ff2a2a", dark: "#330000" },
+  "fire-yellow":{ main: "#ffd700", dark: "#332b00" },
+  "fire-green": { main: "#39ff14", dark: "#0a3300" },
+  "fire-blue":  { main: "#00bfff", dark: "#002233" },
+  "fire-cyan":  { main: "#00ffff", dark: "#003333" },
+  "fire-purple":{ main: "#aa00ff", dark: "#220033" },
+  "fire-pink":  { main: "#ff1493", dark: "#33001e" },
+  "fire-white": { main: "#ffffff", dark: "#333333" },
+  "fire-black": { main: "#8a2be2", dark: "#050005" } // dark shadowflame
+};
 
 class Particle {
-  // ===== CHANGED: accept intensity, scale speed + per-particle opacity =====
   constructor(type, intensity = 80) {
     this.type = type;
 
     let intVal = Number(intensity);
     if (!isFinite(intVal)) intVal = 80;
     intVal = Math.max(0, Math.min(100, intVal));
-    this.speedMul    = 0.6 + (intVal / 100) * 0.8;   // 0.6 .. 1.4  (fall / drift / rise speed)
-    this.opacityMul  = 0.7 + (intVal / 100) * 0.5;   // 0.7 .. 1.2  (individual particle opacity)
+    this.speedMul    = 0.6 + (intVal / 100) * 0.8;
+    this.opacityMul  = 0.7 + (intVal / 100) * 0.5;
 
     this.x = Math.random() * canvas.width;
     this.y = Math.random() * canvas.height;
@@ -1528,7 +1519,10 @@ class Particle {
     this.swaySpeed = Math.random() * 0.025 + 0.008;
     this.radius = Math.random() * 2.5 + 1;
     this.opacity = (Math.random() * 0.45 + 0.25) * this.opacityMul;
+    
     this.color = MAGIC_COLORS[type] || LEAF_COLORS[type] || (type === "petals" ? "#ff9fce" : type === "leaves" ? "#d99a48" : type === "lovely-hearts" ? "#ff9acb" : "#ffffff");
+    if (FIRE_COLORS[type]) this.color = FIRE_COLORS[type].main;
+    else if (type === "ember") this.color = FIRE_COLORS["fiery"].main;
 
     if (type === "rain") {
       this.vy = (Math.random() * 10 + 15) * this.depth;
@@ -1540,7 +1534,7 @@ class Particle {
     } else if (type === "blizzard") {
       this.vy = (Math.random() * 5 + 4) * this.depth;
       this.vx = (Math.random() * 6 - 3) * this.depth;
-    } else if (type === "ember") {
+    } else if (type === "ember" || type === "fiery" || type.startsWith("fire-")) {
       this.y = canvas.height + Math.random() * 100;
       this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
       this.vx = (Math.random() - 0.5) * this.depth;
@@ -1566,13 +1560,11 @@ class Particle {
       this.radius = Math.random() * (type === "stars" ? 2.4 : 3.1) + 0.8;
     }
 
-    // Intensity scaling (counts are scaled in setWeather; here we scale per-particle behaviour)
     if (this.vx !== undefined) this.vx *= this.speedMul;
     if (this.vy !== undefined) this.vy *= this.speedMul;
     if (this.length !== undefined) this.length *= this.speedMul;
     if (this.rotationSpeed !== undefined) this.rotationSpeed *= this.speedMul;
   }
-  // ===== END CHANGED =====
 
   update() {
     this.x += this.vx;
@@ -1584,7 +1576,7 @@ class Particle {
     }
     if (this.type === "lovely-hearts") this.x += Math.sin(this.phase) * 0.35;
     if (this.y > canvas.height + 30) { this.y = -30; this.x = Math.random() * canvas.width; }
-    if (this.y < -30 && (this.type === "ember" || this.type.startsWith("magic-") || this.type === "stars" || this.type === "aurora" || this.type === "lovely-hearts")) {
+    if (this.y < -30 && (this.type === "ember" || this.type.startsWith("fire-") || this.type === "fiery" || this.type.startsWith("magic-") || this.type === "stars" || this.type === "aurora" || this.type === "lovely-hearts")) {
       this.y = canvas.height + 20; this.x = Math.random() * canvas.width;
     }
     if (this.x > canvas.width + 80) { this.x = -80; this.y = Math.random() * canvas.height; }
@@ -1599,9 +1591,13 @@ class Particle {
     } else if (this.type === "snow" || this.type === "blizzard") {
       ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255,255,255,${this.depth * 0.8 * this.opacityMul})`; ctx.shadowBlur = this.depth * 8; ctx.shadowColor = "white"; ctx.fill();
-    } else if (this.type === "ember") {
+    } else if (this.type === "ember" || this.type === "fiery" || this.type.startsWith("fire-")) {
       ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,${Math.floor(Math.random() * 100 + 50)},0,${this.opacity})`; ctx.shadowBlur = 12; ctx.shadowColor = "orange"; ctx.fill();
+      ctx.fillStyle = this.color; 
+      ctx.shadowBlur = 12; 
+      ctx.shadowColor = this.color; 
+      ctx.globalAlpha = this.opacity;
+      ctx.fill();
     } else if (this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
       ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
       ctx.fillStyle = this.type === "petals" ? `rgba(255,159,206,${this.opacity})` : this.type === "leaves" ? `rgba(${190 + Math.floor(Math.random()*50)},${100 + Math.floor(Math.random()*70)},45,${this.opacity})` : this.color;
