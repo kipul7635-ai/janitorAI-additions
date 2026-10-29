@@ -89,19 +89,70 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
     transform: translateZ(0) !important; /* Forces GPU rendering */
 }
 
-/* Beautiful layered volumetric fog */
+/* --- FOG: three parallax noise layers drifting at different speeds + a soft ground glow --- */
 #ambient-fog-overlay {
     position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
-    background: 
+    overflow: hidden !important;
+    opacity: 0; transition: opacity 3s ease !important; /* no !important on opacity: JS fades it in/out inline */
+}
+#ambient-fog-overlay .fog-layer {
+    position: absolute !important; left: 0 !important; width: 200% !important;
+    background-repeat: repeat-x !important;
+    will-change: transform, opacity !important;
+    -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.7) 40%, transparent 100%) !important;
+    mask-image: linear-gradient(to top, #000 0%, rgba(0,0,0,0.7) 40%, transparent 100%) !important;
+}
+#ambient-fog-overlay .fog-far {
+    bottom: 0 !important; height: 78% !important; background-size: 50% 100% !important;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271024%27%20height%3D%27512%27%3E%3Cfilter%20id%3D%27f%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%20color-interpolation-filters%3D%27sRGB%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.004%200.009%27%20numOctaves%3D%274%27%20seed%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%200.86%20%200%200%200%200%200.9%20%200%200%200%200%200.94%20%200%200%200%202.2%20-0.82%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23f%29%27%2F%3E%3C%2Fsvg%3E") !important;
+    --fb-lo: 0.22; --fb-hi: 0.38;
+    animation: fogDrift 110s linear infinite, fogBreathe 19s ease-in-out infinite alternate !important;
+}
+#ambient-fog-overlay .fog-mid {
+    bottom: 0 !important; height: 56% !important; background-size: 50% 100% !important;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271024%27%20height%3D%27512%27%3E%3Cfilter%20id%3D%27f%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%20color-interpolation-filters%3D%27sRGB%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.006%200.014%27%20numOctaves%3D%274%27%20seed%3D%277%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%200.86%20%200%200%200%200%200.9%20%200%200%200%200%200.94%20%200%200%200%202.3%20-0.88%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23f%29%27%2F%3E%3C%2Fsvg%3E") !important;
+    --fb-lo: 0.28; --fb-hi: 0.46;
+    animation: fogDrift 70s linear infinite reverse, fogBreathe 14s ease-in-out infinite alternate !important;
+}
+#ambient-fog-overlay .fog-near {
+    bottom: -4% !important; height: 36% !important; background-size: 50% 100% !important;
+    background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271024%27%20height%3D%27512%27%3E%3Cfilter%20id%3D%27f%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%20color-interpolation-filters%3D%27sRGB%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.008%200.022%27%20numOctaves%3D%274%27%20seed%3D%2711%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20values%3D%270%200%200%200%200.86%20%200%200%200%200%200.9%20%200%200%200%200%200.94%20%200%200%200%202.4%20-0.95%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23f%29%27%2F%3E%3C%2Fsvg%3E") !important;
+    --fb-lo: 0.32; --fb-hi: 0.55;
+    animation: fogDrift 42s linear infinite, fogBreathe 11s ease-in-out infinite alternate !important;
+}
+#ambient-fog-overlay .fog-glow {
+    position: absolute !important; inset: 0 !important;
+    background: linear-gradient(to top, rgba(215, 222, 230, 0.26) 0%, rgba(215, 222, 230, 0.11) 35%, rgba(215, 222, 230, 0.04) 70%, transparent 100%) !important;
+    animation: fogGlow 17s ease-in-out infinite alternate !important;
+}
+@keyframes fogDrift {
+    from { transform: translate3d(0, 0, 0); }
+    to   { transform: translate3d(-50%, 0, 0); }
+}
+@keyframes fogBreathe {
+    from { opacity: var(--fb-lo); }
+    to   { opacity: var(--fb-hi); }
+}
+@keyframes fogGlow {
+    from { opacity: 0.7; }
+    to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #ambient-fog-overlay .fog-layer, #ambient-fog-overlay .fog-glow { animation: none !important; }
+}
+
+/* Soft drifting haze (aurora uses this) */
+#ambient-haze-overlay {
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
+    background:
         radial-gradient(circle at 20% 50%, rgba(200, 200, 200, 0.15) 0%, transparent 50%),
         radial-gradient(circle at 80% 60%, rgba(200, 200, 200, 0.15) 0%, transparent 50%),
         radial-gradient(circle at 50% 30%, rgba(200, 200, 200, 0.1) 0%, transparent 60%);
-    background-size: 200% 200% !important; 
-    animation: fogMove 30s linear infinite !important;
-    opacity: 0 !important; transition: opacity 2s ease !important;
+    background-size: 200% 200% !important;
+    animation: hazeMove 30s linear infinite !important;
+    opacity: 0; transition: opacity 2s ease !important;
 }
-
-@keyframes fogMove {
+@keyframes hazeMove {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
     100% { background-position: 0% 50%; }
@@ -206,4 +257,50 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
 @keyframes vnBounce {
     0%, 100% { transform: translate(-50%, 0); }
     50% { transform: translate(-50%, -8px); }
+}
+
+/* VN back button: sits just left of the continue button */
+#vn-back-btn {
+    position: fixed !important;
+    bottom: 80px !important;
+    left: calc(50% - 56px) !important;
+    transform: translateX(-50%) !important;
+    z-index: 100000 !important;
+    background: rgba(10, 10, 12, 0.85) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+    border-radius: 50% !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: none;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 20px !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    transition: background 0.2s !important;
+}
+#vn-back-btn:hover {
+    background: rgba(40, 40, 45, 0.9) !important;
+}
+
+
+/* VN additions */
+#vn-paragraph-indicator { position:fixed!important; bottom:92px!important; left:calc(50% + 38px)!important; z-index:100000!important; display:none; padding:7px 10px!important; border:1px solid rgba(255,255,255,.18)!important; border-radius:999px!important; color:#fff!important; background:rgba(10,10,12,.85)!important; backdrop-filter:blur(8px)!important; font:12px/1.2 system-ui,sans-serif!important; white-space:nowrap!important; }
+#vn-restore-btn { position:fixed!important; right:14px!important; bottom:138px!important; z-index:100001!important; border:1px solid rgba(255,255,255,.22)!important; border-radius:10px!important; padding:8px 12px!important; color:#fff!important; background:rgba(10,10,12,.88)!important; font:12px system-ui,sans-serif!important; cursor:pointer!important; box-shadow:0 3px 12px rgba(0,0,0,.35)!important; }
+.vn-typeword { white-space: pre-wrap !important; }
+
+/* Soft romantic blush vignette for the Lovely Hearts ambience */
+#ambient-lovely-hearts-overlay {
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
+    opacity: 0; transition: opacity 1.4s ease;
+    background: radial-gradient(ellipse at center, transparent 38%, rgba(255, 170, 205, 0.08) 62%, rgba(255, 125, 180, 0.24) 100%);
+}
+
+/* Deliberately darkens the entire viewport without blocking interaction */
+#ambient-darkness-overlay {
+    position: fixed !important; inset: 0 !important; pointer-events: none !important; z-index: 99997 !important;
+    opacity: 0; transition: opacity 1.5s ease;
+    background: rgba(0, 0, 0, 0.76);
 }
