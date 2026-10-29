@@ -337,4 +337,40 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
 #ambient-name-colors-menu label { font-size: 11px !important; font-weight: 600 !important; color: #a1a1aa !important; text-transform: uppercase !important; margin-bottom: -8px !important; }
 #ambient-name-colors-menu input[type="text"] { background: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; color: #fff !important; padding: 8px 12px !important; border-radius: 8px !important; font-size: 13px !important; }
 #ambient-name-colors-menu button { background: #fff !important; color: #000 !important; border: none !important; padding: 10px !important; border-radius: 8px !important; font-weight: 600 !important; cursor: pointer !important; }
-#ambient-name-colors-menu button#add-name-color-btn { padding: 4px 12px !important; }
+#ambient-name-colors-menu button#add-name-color-btn { padding: 8px 12px !important; }
+#ambient-name-colors-menu button#update-last-msg-btn { background: transparent !important; color: #e4e4e7 !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; }
+
+/* Proper Square Color Picker */
+#new-color-input {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+#new-color-input::-webkit-color-swatch-wrapper { padding: 0; }
+#new-color-input::-webkit-color-swatch { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; }
+#new-color-input::-moz-color-swatch { border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; }
+
+/* Selection Popup */
+#ambient-selection-popup {
+    position: fixed !important;
+    transform: translateX(-50%) !important;
+    z-index: 2147483647 !important;
+    background: #22c55e !important; color: white !important;
+    padding: 8px 14px !important; border-radius: 8px !important;
+    font-family: -apple-system, sans-serif !important;
+    font-size: 13px !important; font-weight: bold !important;
+    cursor: pointer !important; box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+    display: none; align-items: center !important; gap: 6px !important;
+    animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275) !important;
+    white-space: nowrap !important;
+}
+@keyframes popIn {
+    from { opacity: 0; transform: translateX(-50%) scale(0.8); }
+    to { opacity: 1; transform: translateX(-50%) scale(1); }
+}
