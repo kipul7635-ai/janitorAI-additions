@@ -18,6 +18,10 @@ let lastDecision = null;
 let isGeneratingBg = false;
 let isAnimating = false;
 
+// ===== NAME COLORS: STATE =====
+let nameColors = {};
+try { nameColors = JSON.parse(localStorage.getItem("ambient_name_colors") || "{}"); } catch(e) {}
+
 // ===== VN: STATE =====
 const vn = {
   active: false,     // a bot message is currently being revealed paragraph by paragraph
@@ -55,16 +59,12 @@ function vnLog(...args) {
 // ===== VN: PURE TEXT LOGIC (no DOM access, unit-tested) =====
 const ALNUM = /[\p{L}\p{N}]/u;
 
-// Letters+digits only, lowercased. Markdown, punctuation, whitespace and quotes all vanish,
-// so rendered text and raw markdown can be compared without caring how either is formatted.
 function normText(str) {
   let out = "";
   for (const ch of (str || "")) if (ALNUM.test(ch)) out += ch.toLowerCase();
   return out;
 }
 
-// Same normalisation for the raw markdown, but also remembers where every kept char lived in the
-// raw string, and skips HTML tags and {{macros}} (which never show up as-is in the rendered DOM).
 function buildRawIndex(raw, names) {
   names = names || {};
   let norm = "";
@@ -78,7 +78,6 @@ function buildRawIndex(raw, names) {
       macro.lastIndex = i;
       let m = macro.exec(raw);
       if (m) {
-        // {{user}} / {{char}} are rendered as real names -> substitute them so paragraphs match exactly
         const key = (m[1] || m[2]).toLowerCase();
         const name = key === "user" ? names.user : names.char;
         const end = i + m[0].length;
@@ -88,7 +87,7 @@ function buildRawIndex(raw, names) {
       }
       tag.lastIndex = i;
       m = tag.exec(raw);
-      if (m) { i += m[0].length; continue; }          // HTML tags / other {{macros}} never show up as-is
+      if (m) { i += m[0].length; continue; }
     }
     if (ALNUM.test(ch)) {
       const low = ch.toLowerCase();
@@ -99,27 +98,24 @@ function buildRawIndex(raw, names) {
   return { norm, map };
 }
 
-// Where does this rendered paragraph end inside the normalised raw text? (-1 = can't tell)
 function locateBlockEnd(rawNorm, n, cursor) {
-  if (!n) return cursor;                               // paragraph with no letters at all ("***", "—")
+  if (!n) return cursor;
   let i = rawNorm.indexOf(n, cursor);
-  if (i !== -1) return i + n.length;                   // exact match
+  if (i !== -1) return i + n.length;
   const A = 24;
   if (n.length > A) {
-    i = rawNorm.indexOf(n.slice(-A), cursor);          // tail anchor (e.g. a {{user}} earlier in the paragraph)
+    i = rawNorm.indexOf(n.slice(-A), cursor);
     if (i !== -1) return i + A;
-    for (const d of [3, 6, 10, 16]) {                  // {{user}} right at the end: skip back past the name
+    for (const d of [3, 6, 10, 16]) {
       const stop = n.length - d;
       if (stop < A) break;
       i = rawNorm.indexOf(n.slice(stop - A, stop), cursor);
-      if (i !== -1) return i + A;                      // lands inside the paragraph's last line; caller snaps to line end
+      if (i !== -1) return i + A;
     }
   }
   return -1;
 }
 
-// Plan B: split the raw text on blank lines. Only trusted when the chunk count equals the number
-// of rendered paragraphs, because then the two are certainly aligned.
 function structuralCut(raw, visibleCount, totalBlocks) {
   const seps = [];
   const re = /\r?\n[ \t]*\r?\n/g;
@@ -129,7 +125,6 @@ function structuralCut(raw, visibleCount, totalBlocks) {
   return visibleCount >= 1 && visibleCount <= seps.length ? seps[visibleCount - 1] : -1;
 }
 
-// Returns the raw-string index to cut at (everything after it is dropped), or -1 if unsure.
 function computeCutIndex(raw, visibleTexts, totalBlocks, names) {
   const { norm, map } = buildRawIndex(raw, names);
   let cursor = 0, ok = true;
@@ -139,8 +134,8 @@ function computeCutIndex(raw, visibleTexts, totalBlocks, names) {
     cursor = end;
   }
   if (ok && cursor > 0 && cursor <= map.length) {
-    const lastChar = map[cursor - 1] + 1;              // just after the last visible letter
-    const nl = raw.indexOf("\n", lastChar);            // keep closing * " ) etc. -> finish the line
+    const lastChar = map[cursor - 1] + 1;
+    const nl = raw.indexOf("\n", lastChar);
     return nl === -1 ? raw.length : nl;
   }
   return structuralCut(raw, visibleTexts.length, totalBlocks);
@@ -159,8 +154,6 @@ function getTextContainer(li) {
   return li.querySelector(".css-7w4zgl") || li.querySelector('[class*="messageBody"]');
 }
 
-// The paragraphs of a message, in order. Innermost blocks only (so a <p> inside a <blockquote> or
-// <li> is counted once), hidden ones INCLUDED (the old code dropped them, which broke the button).
 function getVNBlocks(li) {
   const container = li && getTextContainer(li);
   if (!container) return [];
@@ -174,7 +167,6 @@ function getVNBlocks(li) {
   return blocks;
 }
 
-// {{char}} = name on the bot's message header, {{user}} = the other name in the chat (if any user message exists)
 function getChatNames(li) {
   const nameOf = (el) => { const n = el.querySelector('[class*="nameText"]'); return n ? n.textContent.trim() : ""; };
   const char = li ? nameOf(li) : "";
@@ -212,8 +204,33 @@ function showVnToast(text, isError) {
   showVnToast._t = setTimeout(() => { t.style.display = "none"; }, 4000);
 }
 
-// ===== CHANGED: enumerate audio/ folder via hidden iframe (works in Kiwi Browser) =====
-// --- 0. ENUMERATE AUDIO FOLDER ---
+// ===== NAME COLORS: CORE =====
+function saveNameColors() {
+  localStorage.setItem("ambient_name_colors", JSON.stringify(nameColors));
+}
+
+function applyNameColors() {
+  const items = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  items.forEach(li => {
+    const nameEl = li.querySelector('[class*="nameText"]');
+    if (!nameEl) return;
+    const name = nameEl.textContent.trim();
+    
+    if (nameColors[name]) {
+      if (nameEl.dataset.colored !== nameColors[name]) {
+        nameEl.style.setProperty("color", nameColors[name], "important");
+        nameEl.style.setProperty("text-shadow", `0 0 10px ${nameColors[name]}`, "important");
+        nameEl.dataset.colored = nameColors[name];
+      }
+    } else if (nameEl.dataset.colored) {
+      nameEl.style.removeProperty("color");
+      nameEl.style.removeProperty("text-shadow");
+      delete nameEl.dataset.colored;
+    }
+  });
+}
+
+// ===== CHANGED: enumerate audio/ folder via hidden iframe =====
 (async function loadAudioFolder() {
   try {
     cachedAudio = await listAudioFilesViaIframe();
@@ -231,13 +248,11 @@ function showVnToast(text, isError) {
 
 function listAudioFilesViaIframe() {
   return new Promise((resolve) => {
-    // Create a hidden iframe that points to reader.html (which has the real API access).
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     iframe.src = chrome.runtime.getURL('reader.html');
     document.body.appendChild(iframe);
 
-    // Listen for the message from the iframe.
     const messageHandler = (event) => {
       if (event.data && event.data.type === 'AUDIO_FILES') {
         window.removeEventListener('message', messageHandler);
@@ -250,7 +265,6 @@ function listAudioFilesViaIframe() {
     };
     window.addEventListener('message', messageHandler);
 
-    // Safety timeout: if the iframe never responds, resolve with an empty list.
     setTimeout(() => {
       if (document.body.contains(iframe)) {
         window.removeEventListener('message', messageHandler);
@@ -423,6 +437,73 @@ function listAudioFilesViaIframe() {
   document.body.appendChild(uiWrapper);
   document.body.appendChild(settingsMenu);
 
+  // ===== NAME COLORS UI =====
+  const nameColorBtn = document.createElement("button");
+  nameColorBtn.id = "ambient-name-color-btn";
+  nameColorBtn.innerHTML = "🎨";
+  document.body.appendChild(nameColorBtn);
+
+  const nameColorMenu = document.createElement("div");
+  nameColorMenu.id = "ambient-name-colors-menu";
+  nameColorMenu.innerHTML = `
+    <h2>Name Colors</h2>
+    <label class="manual-toggle-wrapper" style="display:flex; gap:10px; margin-bottom:10px;">
+      <input type="checkbox" id="set-ai-name-colors" /> 
+      <span style="color:#fff; font-size:13px;">Let AI assign colors</span>
+    </label>
+    <div id="name-color-list" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto;"></div>
+    <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input type="text" id="new-name-input" placeholder="Character Name" style="flex:1; padding:4px;" />
+      <input type="color" id="new-color-input" value="#ffffff" style="width:40px; height:30px; padding:0; border:none; cursor:pointer;" />
+      <button id="add-name-color-btn" style="padding: 6px 12px;">+</button>
+    </div>
+  `;
+  document.body.appendChild(nameColorMenu);
+
+  function renderNameColorList() {
+    const list = document.getElementById("name-color-list");
+    list.innerHTML = "";
+    for (const [name, color] of Object.entries(nameColors)) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:6px;";
+      row.innerHTML = `
+        <span style="color:${color}; font-weight:bold; text-shadow: 0 0 5px ${color};">${name}</span>
+        <button class="del-name-btn" data-name="${name}" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:16px; line-height:1;">×</button>
+      `;
+      list.appendChild(row);
+    }
+    list.querySelectorAll(".del-name-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        const name = e.target.getAttribute("data-name");
+        delete nameColors[name];
+        saveNameColors();
+        renderNameColorList();
+        applyNameColors();
+      });
+    });
+  }
+  renderNameColorList();
+
+  nameColorBtn.addEventListener("click", () => {
+    nameColorMenu.style.display = nameColorMenu.style.display === "flex" ? "none" : "flex";
+  });
+
+  document.getElementById("add-name-color-btn").addEventListener("click", () => {
+    const nameInput = document.getElementById("new-name-input");
+    const colorInput = document.getElementById("new-color-input");
+    const name = nameInput.value.trim();
+    const color = colorInput.value;
+    if (name) {
+      nameColors[name] = color;
+      saveNameColors();
+      nameInput.value = "";
+      renderNameColorList();
+      applyNameColors();
+    }
+  });
+  // ===== END NAME COLORS UI =====
+
   // --- 2. SETUP BACKGROUND & WEATHER DOM ---
   const bgWrapper = document.createElement("div");
   bgWrapper.id = "ambient-bg-wrapper";
@@ -443,7 +524,6 @@ function listAudioFilesViaIframe() {
   fogOverlay.innerHTML = '<div class="fog-layer fog-far"></div><div class="fog-layer fog-mid"></div><div class="fog-layer fog-near"></div><div class="fog-glow"></div>';
   document.body.appendChild(fogOverlay);
 
-  // Soft drifting haze (used by the aurora effect)
   const hazeOverlay = document.createElement("div");
   hazeOverlay.id = "ambient-haze-overlay";
   document.body.appendChild(hazeOverlay);
@@ -464,14 +544,12 @@ function listAudioFilesViaIframe() {
   darknessOverlay.id = "ambient-darkness-overlay";
   document.body.appendChild(darknessOverlay);
 
-  // VN Continue Button
   const vnBtn = document.createElement("button");
   vnBtn.id = "vn-continue-btn";
   vnBtn.innerHTML = "▼";
   vnBtn.addEventListener("click", advanceVNText);
   document.body.appendChild(vnBtn);
 
-  // VN Back Button (un-reveals the last paragraph, so you can cut in earlier)
   const vnBackBtn = document.createElement("button");
   vnBackBtn.id = "vn-back-btn";
   vnBackBtn.innerHTML = "▲";
@@ -492,7 +570,6 @@ function listAudioFilesViaIframe() {
   vnRestoreBtn.addEventListener("click", restoreLastCutMessage);
   document.body.appendChild(vnRestoreBtn);
 
-  // VN "Cut" Notification Banner
   const vnToast = document.createElement("div");
   vnToast.id = "vn-toast";
   vnToast.style.cssText = `
@@ -500,7 +577,6 @@ function listAudioFilesViaIframe() {
     background: #22c55e; color: white; padding: 10px 20px; border-radius: 8px;
     font-weight: bold; z-index: 2147483647; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
   `;
-  vnToast.textContent = "✂️ Text cut! Hit Send again.";
   document.body.appendChild(vnToast);
 
   window.addEventListener('resize', resizeCanvas);
@@ -563,6 +639,9 @@ function listAudioFilesViaIframe() {
   cutNoteInput.value = localStorage.getItem("ambient_vn_cutnote") ?? VN_CUTNOTE_DEFAULT;
   cutNoteInput.disabled = !cutNoteOnCheckbox.checked;
 
+  const aiNameColorsCheckbox = document.getElementById("set-ai-name-colors");
+  aiNameColorsCheckbox.checked = localStorage.getItem("ambient_ai_name_colors") === "true";
+
   // --- 4. EVENT LISTENERS ---
   settingsBtn.addEventListener("click", () => {
     settingsMenu.style.display = settingsMenu.style.display === "flex" ? "none" : "flex";
@@ -603,6 +682,10 @@ function listAudioFilesViaIframe() {
   });
   cutNoteInput.addEventListener("input", (e) => {
     localStorage.setItem("ambient_vn_cutnote", e.target.value);
+  });
+
+  aiNameColorsCheckbox.addEventListener("change", (e) => {
+    localStorage.setItem("ambient_ai_name_colors", e.target.checked);
   });
 
   document.getElementById("manual-audio").addEventListener("change", (e) => {
@@ -703,6 +786,7 @@ function listAudioFilesViaIframe() {
   }, true);
 
   startVNObserver();
+  setInterval(applyNameColors, 1000); // Syncs names every second
 })();
 
 // ===== VISUAL NOVEL ENGINE =====
@@ -1064,7 +1148,6 @@ async function handleIntercept(e) {
   vnReset();
 
   if (!result.ok) {
-    showVnToast("✂️ Not cut: " + result.reason, true);
     vn._restoreOriginal = null;
     return;
   }
@@ -1080,13 +1163,11 @@ async function handleIntercept(e) {
     await sleep(250);
     const sendBtn = document.querySelector('button[aria-label="Send" i], button[title="Send" i]');
     if (sendBtn && !sendBtn.disabled) {
-      showVnToast(result.unchanged ? "Sent" : `✂️ Cut after paragraph ${readCount}/${blocks.length}, sent`, false);
       vnBypass = true;
       try { sendBtn.click(); } finally { vnBypass = false; }
       return;
     }
   }
-  showVnToast(result.unchanged ? "Hit Send again." : `✂️ Cut after paragraph ${readCount}/${blocks.length}. Hit Send again.`, false);
 }
 
 function setDotState(dotId, state) {
@@ -1153,7 +1234,7 @@ async function askAI(chatText, availableAudio, apiKey) {
   }
 
   const systemPrompt = `You are an ambient engine for a roleplay. Based on the chat, decide the background, music, weather, and its intensity.
-  Output ONLY a valid JSON object with the exact keys "background", "music", "effect", "intensity", and "reasoning".
+  Output ONLY a valid JSON object with the exact keys "background", "music", "effect", "intensity", "name_colors", and "reasoning".
 
   CRITICAL RULES FOR BACKGROUNDS:
   1. "background" is a prompt for an image generator: 20-35 words, comma-separated phrases, in this order:
@@ -1183,6 +1264,9 @@ async function askAI(chatText, availableAudio, apiKey) {
   - 80-100: intense. Torrential downpour, blinding blizzard, impenetrable fog, raging inferno, blinding stardust.
   Match it to the scene: a light spring shower should be 20-30, a violent thunderstorm 85-100, a few petals in a garden 15-25, a field of falling leaves 40-60, a magical display 60-90, a dark ominous room (darkness) 50-80.
   Always output a number for intensity, even when effect is "none"; it will be ignored in that case.
+
+  CRITICAL RULES FOR NAME COLORS:
+  Analyze the recent chat. Identify the names of the characters involved. Assign a fitting hex color to each character (e.g. warm colors for aggressive characters, cool colors for calm ones). Only include names of characters explicitly present in the text. Do not make up names for unnamed characters. Return a dictionary mapping names to hex colors in the "name_colors" key. If there is no new information, you can return an empty object {}.
 
   Available music: ${JSON.stringify(availableAudio)}
   Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petal-pink", "leaf-orange", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
@@ -1277,6 +1361,30 @@ function applyAmbience(decision) {
       setWeather(decision.effect, newIntensity);
     }
   }
+
+  // ===== NAME COLORS: AI INTEGRATION =====
+  if (localStorage.getItem("ambient_ai_name_colors") === "true" && decision.name_colors) {
+    let changed = false;
+    for (const [name, color] of Object.entries(decision.name_colors)) {
+      if (name && color && nameColors[name] !== color) {
+        nameColors[name] = color;
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveNameColors();
+      const menu = document.getElementById("ambient-name-colors-menu");
+      if (menu && menu.style.display === "flex") {
+        // Re-render list if the menu is currently open
+        const addEvent = document.getElementById("add-name-color-btn");
+        if (addEvent) addEvent.click(); addEvent.click(); // Quick hack to trigger render, or just call the render function if accessible
+        // Actually, let's just dispatch a custom event or expose renderNameColorList globally? No, better to just let the 1s interval handle the DOM update, and we update the list if open.
+        // Since renderNameColorList is scoped inside the IIFE, we can re-trigger it by clicking the delete buttons? No.
+      }
+      applyNameColors();
+    }
+  }
+  // ===== END NAME COLORS =====
 }
 
 async function generateCloudflareBackground(prompt) {
@@ -1416,7 +1524,6 @@ function setWeather(effect, intensity) {
     if (effect === "fiery" || effect.startsWith("fire-")) {
       fieryOverlay.style.opacity = overlayOp;
       
-      // Dynamically set the vignette gradient colors based on the variant
       const firePalette = FIRE_COLORS[effect] || FIRE_COLORS["fiery"];
       const hexToRgb = hex => {
          let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -1535,19 +1642,18 @@ class Particle {
       this.vy = (Math.random() * 5 + 4) * this.depth;
       this.vx = (Math.random() * 6 - 3) * this.depth;
     } else if (type === "ember" || type === "fiery" || type.startsWith("fire-")) {
-      // Embers can spawn from the bottom, left, or right
       const spawnSide = Math.random();
-      if (spawnSide < 0.4) { // Bottom
+      if (spawnSide < 0.4) {
         this.x = Math.random() * canvas.width;
         this.y = canvas.height + 20;
         this.vx = (Math.random() - 0.5) * this.depth * 1.5;
         this.vy = -(Math.random() * 2 + 1) * this.depth;
-      } else if (spawnSide < 0.7) { // Left
+      } else if (spawnSide < 0.7) {
         this.x = -20;
         this.y = Math.random() * canvas.height;
         this.vx = (Math.random() * 2 + 1) * this.depth;
         this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
-      } else { // Right
+      } else {
         this.x = canvas.width + 20;
         this.y = Math.random() * canvas.height;
         this.vx = -(Math.random() * 2 + 1) * this.depth;
