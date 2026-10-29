@@ -44,7 +44,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function fetchImage(prompt, accountId, apiToken) {
-  const styleModifiers = ", safe for work, family friendly, environment concept art, background scenery, anime visual novel background, highly detailed, clean line art, no humans, no animals, no creatures, no characters, no people, no anatomy, empty landscape";
+  const styleModifiers = ", safe for work, family friendly, environment concept art, background scenery, anime visual novel background, eye-level wide view, lighting that matches the described time of day, highly detailed, clean line art, empty unoccupied scene, no humans, no animals, no creatures, no characters, no people, no anatomy, empty landscape";
   const fullPrompt = prompt + styleModifiers;
 
   // --- ATTEMPT 1: CLOUDFLARE (FLUX) ---
