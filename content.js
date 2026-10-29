@@ -371,7 +371,7 @@ function listAudioFilesViaIframe() {
         <option value="rain">rain</option>
         <option value="fog">fog</option>
         <option value="thunderstorm">thunderstorm</option>
-        <option value="fiery">fiery (default orange)</option>
+        <option value="fiery">fiery — orange</option>
         <option value="fire-red">fiery — red</option>
         <option value="fire-yellow">fiery — yellow</option>
         <option value="fire-green">fiery — green</option>
@@ -383,8 +383,8 @@ function listAudioFilesViaIframe() {
         <option value="fire-black">fiery — shadow</option>
         <option value="snow">snow</option>
         <option value="blizzard">blizzard</option>
-        <option value="petals">cherry blossom petals</option>
-        <option value="leaves">autumn leaves</option>
+        <option value="petal-pink">cherry blossom petals</option>
+        <option value="leaf-orange">autumn leaves</option>
         <option value="leaf-red">red leaves</option>
         <option value="leaf-yellow">yellow leaves</option>
         <option value="leaf-green">green leaves</option>
@@ -1185,7 +1185,7 @@ async function askAI(chatText, availableAudio, apiKey) {
   Always output a number for intensity, even when effect is "none"; it will be ignored in that case.
 
   Available music: ${JSON.stringify(availableAudio)}
-  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petals", "leaves", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
+  Available effects: ["none", "rain", "fog", "thunderstorm", "fiery", "fire-red", "fire-yellow", "fire-green", "fire-blue", "fire-cyan", "fire-purple", "fire-pink", "fire-white", "fire-black", "snow", "blizzard", "petal-pink", "leaf-orange", "leaf-red", "leaf-yellow", "leaf-green", "leaf-cyan", "leaf-blue", "leaf-purple", "leaf-white", "leaf-gold", "leaf-black", "lovely-hearts", "darkness", "stars", "aurora", "magic-red", "magic-orange", "magic-yellow", "magic-green", "magic-cyan", "magic-blue", "magic-purple", "magic-pink", "magic-white", "magic-gold", "magic-black"].
   Magical color effects, stardust, aurora, and lovely hearts can be used indoors or outdoors when the scene supports them. Petals, colored leaves, and colored fire should fit the setting; darkness is a dramatic low-light overlay. Keep all effects subtle enough not to obscure chat text.${memoryPrompt}`;
 
   console.log("%c📤 SENDING CONTEXT TO AI:", "color: #00ffff; font-weight: bold;");
@@ -1452,7 +1452,7 @@ function setWeather(effect, intensity) {
       for (let i = 0; i < cnt(150); i++) particles.push(new Particle("snow", intVal));
     } else if (effect === "blizzard") {
       for (let i = 0; i < cnt(240); i++) particles.push(new Particle("blizzard", intVal));
-    } else if (effect === "petals" || effect === "leaves" || effect.startsWith("leaf-")) {
+    } else if (effect === "petal-pink" || effect === "leaf-orange" || effect === "petals" || effect === "leaves" || effect.startsWith("leaf-")) {
       for (let i = 0; i < cnt(55); i++) particles.push(new Particle(effect, intVal));
     } else if (effect === "lovely-hearts") {
       lovelyHeartsOverlay.style.opacity = overlayOp;
@@ -1483,11 +1483,11 @@ const MAGIC_COLORS = {
   "magic-gold": "#ffd36a", "magic-black": "#8b75ad"
 };
 const LEAF_COLORS = {
+  "leaf-orange": "#d99a48",
   "leaf-red": "#ef5263", "leaf-yellow": "#f5df62", "leaf-green": "#65c96b",
   "leaf-cyan": "#55ded8", "leaf-blue": "#659cff", "leaf-purple": "#b38aff",
   "leaf-white": "#f5f4ff", "leaf-gold": "#e8b64d", "leaf-black": "#777184"
 };
-// ===== NEW: Fire Color Variants =====
 const FIRE_COLORS = {
   "fiery":      { main: "#ff5e00", dark: "#330800" },
   "fire-red":   { main: "#ff2a2a", dark: "#330000" },
@@ -1520,7 +1520,7 @@ class Particle {
     this.radius = Math.random() * 2.5 + 1;
     this.opacity = (Math.random() * 0.45 + 0.25) * this.opacityMul;
     
-    this.color = MAGIC_COLORS[type] || LEAF_COLORS[type] || (type === "petals" ? "#ff9fce" : type === "leaves" ? "#d99a48" : type === "lovely-hearts" ? "#ff9acb" : "#ffffff");
+    this.color = MAGIC_COLORS[type] || LEAF_COLORS[type] || (type === "petal-pink" ? "#ff9fce" : type === "petals" ? "#ff9fce" : type === "leaf-orange" ? "#d99a48" : type === "leaves" ? "#d99a48" : type === "lovely-hearts" ? "#ff9acb" : "#ffffff");
     if (FIRE_COLORS[type]) this.color = FIRE_COLORS[type].main;
     else if (type === "ember") this.color = FIRE_COLORS["fiery"].main;
 
@@ -1535,15 +1535,30 @@ class Particle {
       this.vy = (Math.random() * 5 + 4) * this.depth;
       this.vx = (Math.random() * 6 - 3) * this.depth;
     } else if (type === "ember" || type === "fiery" || type.startsWith("fire-")) {
-      this.y = canvas.height + Math.random() * 100;
-      this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
-      this.vx = (Math.random() - 0.5) * this.depth;
+      // Embers can spawn from the bottom, left, or right
+      const spawnSide = Math.random();
+      if (spawnSide < 0.4) { // Bottom
+        this.x = Math.random() * canvas.width;
+        this.y = canvas.height + 20;
+        this.vx = (Math.random() - 0.5) * this.depth * 1.5;
+        this.vy = -(Math.random() * 2 + 1) * this.depth;
+      } else if (spawnSide < 0.7) { // Left
+        this.x = -20;
+        this.y = Math.random() * canvas.height;
+        this.vx = (Math.random() * 2 + 1) * this.depth;
+        this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
+      } else { // Right
+        this.x = canvas.width + 20;
+        this.y = Math.random() * canvas.height;
+        this.vx = -(Math.random() * 2 + 1) * this.depth;
+        this.vy = -(Math.random() * 1.5 + 0.5) * this.depth;
+      }
     } else if (type === "wind") {
       this.x = Math.random() * canvas.width;
       this.vx = (Math.random() * 3 + 2) * this.depth;
       this.vy = (Math.random() - 0.5) * 0.5;
       this.length = (Math.random() * 65 + 30) * this.depth;
-    } else if (type === "petals" || type === "leaves" || type.startsWith("leaf-")) {
+    } else if (type === "petal-pink" || type === "leaf-orange" || type === "petals" || type === "leaves" || type.startsWith("leaf-")) {
       this.vy = (Math.random() * 1.8 + 0.5) * this.depth;
       this.vx = (Math.random() * 2 - 1) * this.depth;
       this.rotation = Math.random() * Math.PI * 2;
@@ -1570,9 +1585,9 @@ class Particle {
     this.x += this.vx;
     this.y += this.vy;
     this.phase += this.swaySpeed;
-    if (this.type === "snow" || this.type === "blizzard" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
-      this.x += Math.sin(this.phase) * ((this.type === "leaves" || this.type.startsWith("leaf-")) ? 1.8 : 1.1);
-      if (this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) this.rotation += this.rotationSpeed;
+    if (this.type === "snow" || this.type === "blizzard" || this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
+      this.x += Math.sin(this.phase) * ((this.type === "leaf-orange" || this.type === "leaves" || this.type.startsWith("leaf-")) ? 1.8 : 1.1);
+      if (this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) this.rotation += this.rotationSpeed;
     }
     if (this.type === "lovely-hearts") this.x += Math.sin(this.phase) * 0.35;
     if (this.y > canvas.height + 30) { this.y = -30; this.x = Math.random() * canvas.width; }
@@ -1598,9 +1613,9 @@ class Particle {
       ctx.shadowColor = this.color; 
       ctx.globalAlpha = this.opacity;
       ctx.fill();
-    } else if (this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
+    } else if (this.type === "petal-pink" || this.type === "leaf-orange" || this.type === "petals" || this.type === "leaves" || this.type.startsWith("leaf-")) {
       ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
-      ctx.fillStyle = this.type === "petals" ? `rgba(255,159,206,${this.opacity})` : this.type === "leaves" ? `rgba(${190 + Math.floor(Math.random()*50)},${100 + Math.floor(Math.random()*70)},45,${this.opacity})` : this.color;
+      ctx.fillStyle = (this.type === "petal-pink" || this.type === "petals") ? `rgba(255,159,206,${this.opacity})` : (this.type === "leaf-orange" || this.type === "leaves") ? `rgba(${190 + Math.floor(Math.random()*50)},${100 + Math.floor(Math.random()*70)},45,${this.opacity})` : this.color;
       ctx.globalAlpha = this.opacity;
       ctx.beginPath();
       ctx.moveTo(-this.radius * 1.8, 0);
