@@ -214,28 +214,95 @@ function saveNameColors() {
 }
 
 function applyNameColors() {
+  if (Object.keys(nameColors).length === 0) return;
+
   const items = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
+  
+  // Create a regex to find any of the names globally and case-insensitively
+  // Sort by length descending so "Alice Smith" matches before "Alice"
+  const sortedNames = Object.keys(nameColors).sort((a,b) => b.length - a.length);
+  const escapedNames = sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`\\b(${escapedNames.join('|')})\\b`, 'gi');
+
   items.forEach(li => {
-    // Broad selector to catch different variations of Janitor's name headers
+    // 1. Color the Header Name (Character Name)
     const nameEl = li.querySelector('[class*="nameText"], [class*="author"], [class*="userName"]');
-    
-    // Ensure we didn't grab a random element inside the message body
-    if (!nameEl || nameEl.closest('[class*="messageBody"], .css-7w4zgl')) return;
-    
-    const name = nameEl.textContent.trim();
-    const key = name.toLowerCase();
-    
-    if (nameColors[key]) {
-      if (nameEl.dataset.colored !== nameColors[key]) {
-        nameEl.style.setProperty("color", nameColors[key], "important");
-        nameEl.style.setProperty("text-shadow", `0 0 10px ${nameColors[key]}`, "important");
-        nameEl.dataset.colored = nameColors[key];
+    if (nameEl && !nameEl.closest('[class*="messageBody"], .css-7w4zgl')) {
+      const name = nameEl.textContent.trim();
+      const key = name.toLowerCase();
+      if (nameColors[key]) {
+        if (nameEl.dataset.colored !== nameColors[key]) {
+          nameEl.style.setProperty("color", nameColors[key], "important");
+          nameEl.style.setProperty("text-shadow", `0 0 10px ${nameColors[key]}`, "important");
+          nameEl.dataset.colored = nameColors[key];
+        }
+      } else if (nameEl.dataset.colored) {
+        nameEl.style.removeProperty("color");
+        nameEl.style.removeProperty("text-shadow");
+        delete nameEl.dataset.colored;
       }
-    } else if (nameEl.dataset.colored) {
-      nameEl.style.removeProperty("color");
-      nameEl.style.removeProperty("text-shadow");
-      delete nameEl.dataset.colored;
     }
+
+    // 2. Color the names inside the message body text
+    const container = getTextContainer(li);
+    if (!container) return;
+
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(node) {
+        // Skip thoughts/reasoning, and already colored spans
+        if (node.parentElement.closest('[class*="thought"], [class*="reasoning"], .ambient-colored-name')) return NodeFilter.FILTER_REJECT;
+        if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    const nodesToReplace = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      regex.lastIndex = 0;
+      if (regex.test(node.nodeValue)) {
+        nodesToReplace.push(node);
+      }
+    }
+
+    nodesToReplace.forEach(node => {
+      let text = node.nodeValue;
+      const frag = document.createDocumentFragment();
+      let lastIdx = 0;
+      let match;
+      regex.lastIndex = 0;
+
+      while ((match = regex.exec(text)) !== null) {
+        const matchStart = match.index;
+        const matchEnd = regex.lastIndex;
+        const matchedText = match[0];
+        const lowerName = matchedText.toLowerCase();
+
+        if (matchStart > lastIdx) {
+          frag.appendChild(document.createTextNode(text.slice(lastIdx, matchStart)));
+        }
+
+        if (nameColors[lowerName]) {
+          const span = document.createElement('span');
+          span.className = 'ambient-colored-name';
+          span.style.setProperty('color', nameColors[lowerName], 'important');
+          span.style.setProperty('text-shadow', `0 0 8px ${nameColors[lowerName]}`, 'important');
+          span.textContent = matchedText;
+          frag.appendChild(span);
+        } else {
+          frag.appendChild(document.createTextNode(matchedText));
+        }
+        lastIdx = matchEnd;
+      }
+
+      if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+      }
+
+      if (node.parentNode) {
+        node.parentNode.replaceChild(frag, node);
+      }
+    });
   });
 }
 
@@ -498,8 +565,9 @@ function listAudioFilesViaIframe() {
           }
           
           popup.style.display = "flex";
+          // Position BELOW the text so we don't block the mobile copy/paste menu
           popup.style.left = `${rect.left + rect.width / 2}px`;
-          popup.style.top = `${rect.top - 45}px`;
+          popup.style.top = `${rect.bottom + 10}px`;
           popup.textContent = `🎨 Color "${text}"`;
           popup.dataset.name = text;
         } catch(err) { popup.style.display = "none"; }
@@ -1033,7 +1101,7 @@ function applyVN(blocks) {
 function vnSync() {
   vnSyncQueued = false;
   if (isCuttingMessage) return;
-  applyNameColors(); // <-- Added here to catch DOM changes immediately
+  applyNameColors(); // <-- Catch DOM changes immediately
   const btn = document.getElementById("vn-continue-btn");
   if (!btn) return;
 
