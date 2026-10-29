@@ -19,7 +19,6 @@ let isGeneratingBg = false;
 let isAnimating = false;
 
 // ===== NAME COLORS: STATE =====
-// Stored with lowercase keys for case-insensitive matching
 let nameColors = {};
 try { 
   const stored = JSON.parse(localStorage.getItem("ambient_name_colors") || "{}");
@@ -218,8 +217,6 @@ function applyNameColors() {
 
   const items = document.querySelectorAll('li[class*="messageDisplayWrapper"]');
   
-  // Create a regex to find any of the names globally and case-insensitively
-  // Sort by length descending so "Alice Smith" matches before "Alice"
   const sortedNames = Object.keys(nameColors).sort((a,b) => b.length - a.length);
   const escapedNames = sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const regex = new RegExp(`\\b(${escapedNames.join('|')})\\b`, 'gi');
@@ -249,7 +246,6 @@ function applyNameColors() {
 
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode: function(node) {
-        // Skip thoughts/reasoning, and already colored spans
         if (node.parentElement.closest('[class*="thought"], [class*="reasoning"], .ambient-colored-name')) return NodeFilter.FILTER_REJECT;
         if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
@@ -537,62 +533,6 @@ function listAudioFilesViaIframe() {
     <button id="update-last-msg-btn" style="margin-top:10px; background: #333 !important; color: #fff !important; border: 1px solid #555 !important;">Apply to Latest Message</button>
   `;
   document.body.appendChild(nameColorMenu);
-
-  // ===== SELECTION POPUP =====
-  const selectionPopup = document.createElement("div");
-  selectionPopup.id = "ambient-selection-popup";
-  selectionPopup.style.display = "none";
-  document.body.appendChild(selectionPopup);
-
-  function checkSelection(e) {
-    if (e && e.target.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup")) return;
-    
-    // Small delay to let the browser finish selection
-    setTimeout(() => {
-      const sel = window.getSelection();
-      const text = sel.toString().trim();
-      const popup = document.getElementById("ambient-selection-popup");
-      if (!popup) return;
-      
-      if (text.length > 0 && text.length < 50) {
-        try {
-          const range = sel.getRangeAt(0);
-          const rect = range.getBoundingClientRect();
-          
-          if (sel.anchorNode && (sel.anchorNode.parentElement.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup"))) {
-            popup.style.display = "none";
-            return;
-          }
-          
-          popup.style.display = "flex";
-          // Position BELOW the text so we don't block the mobile copy/paste menu
-          popup.style.left = `${rect.left + rect.width / 2}px`;
-          popup.style.top = `${rect.bottom + 10}px`;
-          popup.textContent = `🎨 Color "${text}"`;
-          popup.dataset.name = text;
-        } catch(err) { popup.style.display = "none"; }
-      } else {
-        popup.style.display = "none";
-      }
-    }, 150);
-  }
-
-  document.addEventListener("mouseup", checkSelection);
-  document.addEventListener("touchend", checkSelection);
-
-  selectionPopup.addEventListener("mousedown", (e) => e.preventDefault());
-  selectionPopup.addEventListener("click", (e) => {
-    const name = e.target.dataset.name;
-    if (name) {
-      nameColorMenu.style.display = "flex";
-      const input = document.getElementById("new-name-input");
-      input.value = name;
-      input.focus();
-      document.getElementById("new-color-input").click();
-      window.getSelection().removeAllRanges();
-      e.target.style.display = "none";
-    }
-  });
 
   function renderNameColorList() {
     const list = document.getElementById("name-color-list");
@@ -1507,7 +1447,6 @@ function applyAmbience(decision) {
     }
   }
 
-  // ===== NAME COLORS: AI INTEGRATION =====
   if (localStorage.getItem("ambient_ai_name_colors") === "true" && decision.name_colors) {
     let changed = false;
     for (const [rawName, color] of Object.entries(decision.name_colors)) {
@@ -1522,7 +1461,6 @@ function applyAmbience(decision) {
       applyNameColors();
     }
   }
-  // ===== END NAME COLORS =====
 }
 
 async function generateCloudflareBackground(prompt) {
