@@ -19,8 +19,12 @@ let isGeneratingBg = false;
 let isAnimating = false;
 
 // ===== NAME COLORS: STATE =====
+// Stored with lowercase keys for case-insensitive matching
 let nameColors = {};
-try { nameColors = JSON.parse(localStorage.getItem("ambient_name_colors") || "{}"); } catch(e) {}
+try { 
+  const stored = JSON.parse(localStorage.getItem("ambient_name_colors") || "{}");
+  for (const [k, v] of Object.entries(stored)) nameColors[k.toLowerCase()] = v;
+} catch(e) {}
 
 // ===== VN: STATE =====
 const vn = {
@@ -215,12 +219,13 @@ function applyNameColors() {
     const nameEl = li.querySelector('[class*="nameText"]');
     if (!nameEl) return;
     const name = nameEl.textContent.trim();
+    const key = name.toLowerCase();
     
-    if (nameColors[name]) {
-      if (nameEl.dataset.colored !== nameColors[name]) {
-        nameEl.style.setProperty("color", nameColors[name], "important");
-        nameEl.style.setProperty("text-shadow", `0 0 10px ${nameColors[name]}`, "important");
-        nameEl.dataset.colored = nameColors[name];
+    if (nameColors[key]) {
+      if (nameEl.dataset.colored !== nameColors[key]) {
+        nameEl.style.setProperty("color", nameColors[key], "important");
+        nameEl.style.setProperty("text-shadow", `0 0 10px ${nameColors[key]}`, "important");
+        nameEl.dataset.colored = nameColors[key];
       }
     } else if (nameEl.dataset.colored) {
       nameEl.style.removeProperty("color");
@@ -458,21 +463,79 @@ function listAudioFilesViaIframe() {
       <input type="color" id="new-color-input" value="#ffffff" style="width:40px; height:30px; padding:0; border:none; cursor:pointer;" />
       <button id="add-name-color-btn" style="padding: 6px 12px;">+</button>
     </div>
+    <button id="update-last-msg-btn" style="margin-top:10px; background: #333 !important; color: #fff !important; border: 1px solid #555 !important;">Apply to Latest Message</button>
   `;
   document.body.appendChild(nameColorMenu);
+
+  // ===== SELECTION POPUP =====
+  const selectionPopup = document.createElement("div");
+  selectionPopup.id = "ambient-selection-popup";
+  selectionPopup.style.display = "none";
+  document.body.appendChild(selectionPopup);
+
+  let selectionTimeout;
+  document.addEventListener("selectionchange", () => {
+    clearTimeout(selectionTimeout);
+    selectionTimeout = setTimeout(() => {
+      const sel = window.getSelection();
+      const text = sel.toString().trim();
+      const popup = document.getElementById("ambient-selection-popup");
+      if (!popup) return;
+      
+      if (text.length > 0 && text.length < 50) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        // Don't show if selecting inside our own UI
+        if (sel.anchorNode && (sel.anchorNode.parentElement.closest("#ambient-settings-menu, #ambient-name-colors-menu, #ambient-selection-popup"))) {
+          popup.style.display = "none";
+          return;
+        }
+        
+        popup.style.display = "block";
+        popup.style.left = `${rect.left + rect.width / 2}px`;
+        popup.style.top = `${rect.top - 40}px`;
+        popup.textContent = `🎨 Color "${text}"`;
+        popup.dataset.name = text;
+      } else {
+        popup.style.display = "none";
+      }
+    }, 400);
+  });
+
+  selectionPopup.addEventListener("mousedown", (e) => e.preventDefault()); // Keep selection
+  selectionPopup.addEventListener("click", (e) => {
+    const name = e.target.dataset.name;
+    if (name) {
+      nameColorMenu.style.display = "flex";
+      const input = document.getElementById("new-name-input");
+      input.value = name;
+      input.focus();
+      document.getElementById("new-color-input").click();
+      window.getSelection().removeAllRanges();
+      e.target.style.display = "none";
+    }
+  });
 
   function renderNameColorList() {
     const list = document.getElementById("name-color-list");
     list.innerHTML = "";
-    for (const [name, color] of Object.entries(nameColors)) {
+    // Sort alphabetically
+    const sortedKeys = Object.keys(nameColors).sort();
+    
+    for (const key of sortedKeys) {
+      const color = nameColors[key];
+      const display = key.charAt(0).toUpperCase() + key.slice(1); // Capitalize for display
+      
       const row = document.createElement("div");
       row.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:4px 8px; border-radius:6px;";
       row.innerHTML = `
-        <span style="color:${color}; font-weight:bold; text-shadow: 0 0 5px ${color};">${name}</span>
-        <button class="del-name-btn" data-name="${name}" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:16px; line-height:1;">×</button>
+        <span style="color:${color}; font-weight:bold; text-shadow: 0 0 5px ${color};">${display}</span>
+        <button class="del-name-btn" data-name="${key}" style="background:transparent; border:none; color:#ef4444; cursor:pointer; font-size:16px; line-height:1;">×</button>
       `;
       list.appendChild(row);
     }
+    
     list.querySelectorAll(".del-name-btn").forEach(btn => {
       btn.addEventListener("click", (e) => {
         const name = e.target.getAttribute("data-name");
@@ -492,7 +555,7 @@ function listAudioFilesViaIframe() {
   document.getElementById("add-name-color-btn").addEventListener("click", () => {
     const nameInput = document.getElementById("new-name-input");
     const colorInput = document.getElementById("new-color-input");
-    const name = nameInput.value.trim();
+    const name = nameInput.value.trim().toLowerCase();
     const color = colorInput.value;
     if (name) {
       nameColors[name] = color;
@@ -501,6 +564,14 @@ function listAudioFilesViaIframe() {
       renderNameColorList();
       applyNameColors();
     }
+  });
+
+  document.getElementById("update-last-msg-btn").addEventListener("click", () => {
+    applyNameColors();
+    const btn = document.getElementById("update-last-msg-btn");
+    const orig = btn.textContent;
+    btn.textContent = "Updated!";
+    setTimeout(() => btn.textContent = orig, 1000);
   });
   // ===== END NAME COLORS UI =====
 
@@ -1365,7 +1436,8 @@ function applyAmbience(decision) {
   // ===== NAME COLORS: AI INTEGRATION =====
   if (localStorage.getItem("ambient_ai_name_colors") === "true" && decision.name_colors) {
     let changed = false;
-    for (const [name, color] of Object.entries(decision.name_colors)) {
+    for (const [rawName, color] of Object.entries(decision.name_colors)) {
+      const name = rawName.trim().toLowerCase();
       if (name && color && nameColors[name] !== color) {
         nameColors[name] = color;
         changed = true;
@@ -1373,14 +1445,6 @@ function applyAmbience(decision) {
     }
     if (changed) {
       saveNameColors();
-      const menu = document.getElementById("ambient-name-colors-menu");
-      if (menu && menu.style.display === "flex") {
-        // Re-render list if the menu is currently open
-        const addEvent = document.getElementById("add-name-color-btn");
-        if (addEvent) addEvent.click(); addEvent.click(); // Quick hack to trigger render, or just call the render function if accessible
-        // Actually, let's just dispatch a custom event or expose renderNameColorList globally? No, better to just let the 1s interval handle the DOM update, and we update the list if open.
-        // Since renderNameColorList is scoped inside the IIFE, we can re-trigger it by clicking the delete buttons? No.
-      }
       applyNameColors();
     }
   }
