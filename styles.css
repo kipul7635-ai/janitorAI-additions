@@ -163,11 +163,17 @@ p, span, em, strong, h1, h2, h3, h4, h5, h6, div[class*="messageBody"] * {
     background: white !important; opacity: 0; transition: opacity 0.1s !important;
 }
 
+/* ===== FIXED: Fiery Vignette Overlay ===== */
 #ambient-fiery-overlay {
-    position: fixed !important; bottom: 0 !important; left: 0 !important;
-    width: 100vw !important; height: 40vh !important; pointer-events: none !important; z-index: 99996 !important;
-    background: radial-gradient(ellipse at bottom, rgba(255, 50, 0, 0.5) 0%, transparent 70%) !important;
-    opacity: 0 !important; transition: opacity 2s ease !important;
+    position: fixed !important; 
+    inset: 0 !important; /* Changed from bottom/left/width/height to inset */
+    pointer-events: none !important; 
+    z-index: 99996 !important;
+    background: 
+        radial-gradient(circle at 50% 110%, rgba(255, 60, 0, 0.65) 0%, transparent 60%),
+        radial-gradient(circle at 50% 50%, transparent 40%, rgba(80, 10, 0, 0.55) 100%);
+    opacity: 0; /* Removed !important so JS can control it */
+    transition: opacity 2s ease !important;
 }
 
 /* --- 6. INITIALIZATION OVERLAY --- */
