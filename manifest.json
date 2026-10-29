@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JanitorAI ambient engine",
-  "version": "1.10",
+  "version": "1.12",
   "description": "Dynamic ambient effects for Janitor AI chats",
   "icons": {
     "16": "images/extensionIcon.png",
